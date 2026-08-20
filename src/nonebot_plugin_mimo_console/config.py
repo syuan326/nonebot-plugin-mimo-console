@@ -4,7 +4,8 @@ import re
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator
+from nonebot.compat import field_validator
+from pydantic import BaseModel, Field
 
 from .version import normalize_github_proxy
 

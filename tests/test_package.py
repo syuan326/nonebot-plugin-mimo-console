@@ -128,9 +128,10 @@ class PackageTests(unittest.TestCase):
             ROOT / "src" / "nonebot_plugin_mimo_console" / "static" / "assets" / "app.js"
         ).read_text(encoding="utf-8")
         self.assertIn(
-            "state.packageManagement\n      && item.source_repository",
+            "state.packageManagement && !isSelf",
             script,
         )
+        self.assertIn("if (item.source_repository)", script)
         self.assertIn(
             "state.packageManagement = data.package_management !== false;",
             script,
@@ -435,8 +436,11 @@ class PackageTests(unittest.TestCase):
 
     def test_store_dependencies_are_declared(self) -> None:
         pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
-        self.assertIn('"nb-cli>=1.4.2"', pyproject)
         self.assertIn('"httpx>=0.27.0', pyproject)
+        self.assertIn('"nonebot2>=2.5.0', pyproject)
+        self.assertIn('"fastapi>=0.100.0"', pyproject)
+        self.assertNotIn('"nb-cli', pyproject)
+        self.assertNotIn("nonebot2[", pyproject)
 
     def test_loads_without_asgi_driver_for_noneflow(self) -> None:
         result = run_loading_script(

@@ -3,8 +3,10 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
+from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from nonebot import get_app, get_driver, get_plugin_config, logger, on_command, require
+from nonebot.drivers import ASGIMixin
 from nonebot.exception import IgnoredException
 from nonebot.matcher import Matcher
 from nonebot.message import run_preprocessor
@@ -98,17 +100,17 @@ async def _disabled_plugin_guard(matcher: Matcher) -> None:
 
 
 def _mount_console() -> bool:
-    try:
-        app = get_app()
-    except AssertionError:
-        app = None
-    if (
-        app is None
-        or not callable(getattr(app, "include_router", None))
-        or not callable(getattr(app, "mount", None))
-    ):
+    driver = get_driver()
+    if not isinstance(driver, ASGIMixin):
         logger.warning(
-            "[Mimo Console] 当前 Driver 未提供可用的 ASGI App，插件已加载但 WebUI 未启用；"
+            "[Mimo Console] 当前 Driver 不是 ASGI 服务，插件已加载但 WebUI 未启用；"
+            "请配置 DRIVER=~fastapi"
+        )
+        return False
+    app = get_app()
+    if not isinstance(app, FastAPI):
+        logger.warning(
+            "[Mimo Console] 当前 ASGI App 不是 FastAPI，插件已加载但 WebUI 未启用；"
             "请配置 DRIVER=~fastapi"
         )
         return False
