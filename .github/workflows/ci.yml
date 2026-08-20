@@ -167,7 +167,7 @@ jobs:
       - name: Test installed wheel
         run: |
           uv venv --seed .package-venv
-          uv pip install --python .package-venv/bin/python dist/*.whl
+          uv pip install --python .package-venv/bin/python dist/*.whl uvicorn
           .package-venv/bin/python - <<'PY'
           import nonebot
 
