@@ -2739,3 +2739,91 @@ a { color: inherit; text-decoration: none; }
 .markdown-body > :last-child {
   margin-bottom: 0;
 }
+
+/* Configuration workspace */
+#page-config { padding-bottom: 76px; }
+.config-eyebrow { display: block; margin-bottom: 8px; color: var(--accent); font-size: 10px; font-weight: 700; letter-spacing: .12em; }
+#page-config .page-header h1 { margin-bottom: 8px; }
+.config-summary { padding: 8px 12px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); background: var(--surface-soft); font-size: 12px; white-space: nowrap; }
+.config-source-strip { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 20px; padding: 13px 24px; border-top: 1px solid var(--line); color: var(--muted); background: var(--surface-soft); font-size: 12px; }
+.config-source-strip > div { display: flex; min-width: 0; align-items: center; gap: 9px; }
+.config-source-strip code { color: var(--text-soft); font-family: var(--mono); }
+.config-source-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--color-green); }
+.config-restart-note { font-size: 11px; }
+.config-connect-guide { display: flex; align-items: flex-start; gap: 16px; padding: 22px 24px; margin-bottom: 20px; border-color: var(--accent-line); background: linear-gradient(115deg, var(--accent-soft), transparent 80%), var(--glass-panel); }
+.config-guide-icon { display: grid; flex: 0 0 40px; width: 40px; height: 40px; place-items: center; border: 1px solid var(--accent-line); border-radius: 12px; color: var(--accent); background: var(--surface); font-size: 24px; }
+.config-guide-body { min-width: 0; flex: 1; }
+.config-guide-heading { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.config-guide-heading h2 { margin: 0; color: var(--text); font-size: 15px; font-weight: 650; }
+.config-recommended { padding: 3px 7px; border: 1px solid var(--accent-line); border-radius: 6px; color: var(--accent); font-size: 10px; font-weight: 600; }
+.config-guide-body > p { margin: 9px 0 13px; color: var(--muted); font-size: 12px; line-height: 1.8; }
+.config-endpoint { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 7px 9px 7px 13px; border: 1px solid var(--accent-line); border-radius: 9px; background: var(--surface); }
+.config-endpoint code { min-width: 0; overflow-wrap: anywhere; color: var(--accent); font-family: var(--mono); font-size: 12px; }
+.config-endpoint button { flex-shrink: 0; }
+.config-guide-footnote { display: block; margin-top: 10px; color: var(--muted); font-size: 11px; line-height: 1.8; }
+#page-config .config-workspace-card { overflow: visible; border: 0; background: transparent; box-shadow: none; }
+#page-config .config-workspace-card > .toolbar { gap: 8px; padding: 0 0 15px; background: transparent; }
+#page-config .search-box { min-width: 180px; flex: 1; background: var(--surface); }
+#config-backup-select { max-width: 190px; background-color: var(--surface); }
+.config-categories { display: flex; flex-wrap: wrap; gap: 7px; padding: 0 0 15px; }
+.config-category { display: inline-flex; align-items: center; gap: 8px; min-height: 35px; padding: 7px 11px; border: 1px solid transparent; border-radius: 9px; color: var(--muted); background: transparent; font: inherit; font-size: 12px; cursor: pointer; transition: background .15s, color .15s; }
+.config-category:hover { background: var(--surface-hover); color: var(--text); }
+.config-category.active { border-color: var(--accent-line); color: var(--accent); background: var(--accent-soft); font-weight: 600; }
+.config-category > span { display: inline-grid; min-width: 18px; height: 18px; padding: 0 4px; place-items: center; border-radius: 5px; background: var(--surface-inset); color: var(--muted); font-size: 10px; }
+.config-category.active > span { color: var(--accent); background: var(--surface); }
+.config-scope-note { margin-bottom: 16px; color: var(--muted); font-size: 11px; line-height: 1.8; }
+#page-config .config-workspace-card > .config-groups { border: 0; gap: 18px; }
+#page-config .config-workspace-card .config-group { border: 1px solid var(--line); border-radius: 13px; background: var(--glass-panel); box-shadow: var(--shadow); overflow: hidden; }
+#page-config .config-group-head { min-height: 76px; padding: 16px 22px; background: var(--surface); }
+.config-group-title { display: flex; align-items: center; gap: 12px; }
+.config-group-title .config-group-number { display: grid; width: 32px; height: 32px; border: 1px solid var(--line); border-radius: 9px; place-items: center; font-family: var(--mono); color: var(--muted); font-size: 11px; }
+.config-group-title p { margin: 5px 0 0; color: var(--muted); font-size: 11px; line-height: 1.6; }
+#page-config .config-item { position: relative; grid-template-columns: minmax(180px, .95fr) minmax(220px, 1fr); gap: 24px; padding: 22px; align-items: start; transition: background .15s; }
+#page-config .config-item-changed { background: var(--accent-soft); box-shadow: inset 3px 0 var(--accent); }
+#page-config .config-key { min-width: 0; }
+#page-config .config-key label { display: flex; align-items: center; gap: 8px; color: var(--text); font-size: 13px; font-weight: 600; line-height: 1.5; }
+#page-config .config-key code { display: block; margin-top: 6px; font-family: var(--mono); font-size: 10px; color: var(--muted); overflow-wrap: anywhere; }
+#page-config .config-key p { max-width: 380px; margin: 8px 0 0; font-size: 11px; color: var(--muted); line-height: 1.8; }
+#page-config .config-key .config-sensitive { padding: 2px 5px; border: 1px solid var(--line); border-radius: 4px; color: var(--muted); font-size: 9px; font-weight: 400; }
+.config-control { min-width: 0; }
+#page-config .config-input { width: 100%; min-width: 0; background: var(--surface-soft); border-color: var(--line); }
+#page-config textarea.config-input { min-height: 82px; height: auto; resize: vertical; padding: 11px 12px; line-height: 1.7; tab-size: 2; }
+#page-config select.config-input { font-family: var(--font); cursor: pointer; }
+#page-config .config-input:focus { background: var(--surface); border-color: var(--accent); }
+#page-config .config-input[aria-invalid="true"] { border-color: var(--color-red); }
+.config-control-note { display: block; margin-top: 8px; color: var(--muted); font-size: 10px; line-height: 1.7; }
+.config-field-error { margin: 8px 0 0; color: var(--color-red); font-size: 11px; line-height: 1.6; }
+.config-field-error[hidden] { display: none; }
+.config-boolean { display: inline-flex; position: relative; align-items: center; gap: 10px; min-height: 40px; cursor: pointer; }
+#page-config .config-boolean input { position: absolute; width: 40px; height: 24px; margin: 0; opacity: 0; }
+.config-switch-track { width: 38px; height: 22px; border: 1px solid var(--line-strong); border-radius: 99px; background: var(--surface-inset); transition: background .15s; }
+.config-switch-track::after { content: ""; display: block; width: 16px; height: 16px; margin: 2px; border-radius: 50%; background: var(--muted); transition: transform .15s, background .15s; }
+.config-boolean input:checked + .config-switch-track { border-color: var(--accent); background: var(--accent); }
+.config-boolean input:checked + .config-switch-track::after { background: white; transform: translateX(16px); }
+.config-boolean input:focus-visible + .config-switch-track { outline: 2px solid var(--accent); outline-offset: 3px; }
+.config-switch-state { color: var(--text-soft); font-size: 12px; }
+.config-empty { padding: 46px 20px; border: 1px dashed var(--line-strong); border-radius: 13px; background: var(--surface); }
+.config-empty strong { color: var(--text-soft); font-size: 14px; }
+.config-empty p { color: var(--muted); font-size: 12px; }
+.save-bar:not(.show) { visibility: hidden; }
+.config-category:focus-visible, #page-config button:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+#config-preset { width: 100%; }
+#config-preset-hint { margin: -2px 0 18px; font-size: 12px; line-height: 1.8; }
+@media (max-width: 760px) {
+  #page-config .page-header { align-items: flex-start; flex-direction: column; gap: 12px; padding: 20px; }
+  .config-source-strip { padding: 12px 20px; }
+  .config-connect-guide { padding: 18px; gap: 12px; }
+  .config-guide-icon { display: none; }
+  #page-config .config-item { grid-template-columns: 1fr; gap: 14px; padding: 18px; }
+  #page-config .config-group-head { padding: 16px 18px; }
+  #page-config .config-key p { max-width: none; }
+  .config-categories { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 12px; }
+  .config-category { flex-shrink: 0; }
+  #page-config .config-workspace-card > .toolbar { flex-wrap: wrap; }
+  #page-config .search-box { flex-basis: 100%; }
+  #config-backup-select { min-width: 0; flex: 1; max-width: none; }
+  #page-config .save-bar { left: 12px; right: 12px; bottom: 12px; flex-wrap: wrap; gap: 8px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  #page-config *, #page-config *::after { transition: none !important; }
+}

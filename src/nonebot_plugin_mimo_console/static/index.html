@@ -19,7 +19,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="./assets/styles.css?v=1.3.10">
+  <link rel="stylesheet" href="./assets/styles.css?v=1.3.11-config">
 </head>
 <body>
   <div id="bg-layer" class="bg-layer"></div>
@@ -357,37 +357,49 @@
           <div class="page-stack-card page-intro-card card">
             <div class="page-header">
               <div>
+                <span class="config-eyebrow">WORKSPACE SETTINGS</span>
                 <h1>核心配置</h1>
-                <p class="text-muted">管理 NoneBot 与未归属插件的环境变量</p>
+                <p class="text-muted">连接机器人，管理消息权限与运行参数。</p>
               </div>
-              <span id="config-path" class="badge-outline">正在读取…</span>
+              <span id="config-summary" class="config-summary">正在读取…</span>
             </div>
-            <div class="notice warning">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-              <span>保存后请重启 NoneBot 使配置生效</span>
+            <div class="config-source-strip">
+              <div><span class="config-source-dot" aria-hidden="true"></span><span>当前编辑</span><code id="config-path">正在读取…</code></div>
+              <span class="config-restart-note">保存时自动备份 · 重启后生效</span>
             </div>
           </div>
+          <article class="card config-connect-guide" id="config-connect-guide">
+            <div class="config-guide-icon" aria-hidden="true">↔</div>
+            <div class="config-guide-body">
+              <div class="config-guide-heading"><h2>连接多个 OneBot 账号</h2><span class="config-recommended">反向 WS</span></div>
+              <p>每个客户端登录一个机器人账号，连接同一地址，并使用相同的连接令牌。</p>
+              <div class="config-endpoint"><code id="config-ws-endpoint"></code><button id="copy-ws-endpoint" class="btn btn-secondary btn-sm" type="button">复制地址</button></div>
+              <span class="config-guide-footnote">此地址按当前网页地址生成；客户端在其他设备上时，请使用它能访问的 NoneBot 地址。正向 WS 可在「新增配置」中添加。</span>
+            </div>
+          </article>
           <div class="page-stack-card config-workspace-card card">
             <div class="toolbar">
               <div class="search-box">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-                <input id="config-search" placeholder="搜索配置项">
+                <input id="config-search" placeholder="搜索名称、字段或用途" aria-label="搜索配置">
               </div>
               <select id="config-backup-select" class="select" aria-label="配置备份">
                 <option value="">没有可用备份</option>
               </select>
               <button id="restore-config" class="btn btn-secondary" disabled>还原备份</button>
-              <button id="add-config" class="btn btn-secondary btn-sm">+ 新增</button>
+              <button id="add-config" class="btn btn-primary btn-sm">＋ 新增配置</button>
             </div>
+            <nav id="config-categories" class="config-categories" aria-label="配置分类"></nav>
+            <div class="config-scope-note">这里展示当前文件的配置；公共 .env 与系统环境变量未合并。插件专属配置请前往插件详情。</div>
             <div id="config-groups" class="config-groups"></div>
           </div>
           <div id="save-bar" class="save-bar">
             <div>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-              有未保存的修改
+              <span id="config-save-status" aria-live="polite">有未保存的修改</span>
             </div>
             <div class="save-bar-actions">
-              <button id="discard-config" class="btn btn-ghost btn-sm">放弃</button>
+              <button id="discard-config" class="btn btn-ghost btn-sm">撤销修改</button>
               <button id="save-config" class="btn btn-primary btn-sm">保存配置</button>
             </div>
           </div>
@@ -569,7 +581,9 @@
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
         </button>
       </div>
-      <label class="field"><span>配置键</span><input id="new-config-key" placeholder="例如 MY_PLUGIN_ENABLED"></label>
+      <label class="field"><span>从常用配置开始</span><select id="config-preset" class="select"><option value="">自定义配置</option></select></label>
+      <p id="config-preset-hint" class="text-muted">仅添加组件实际支持的配置字段；添加后仍需保存才会写入文件。</p>
+      <label class="field"><span>配置键</span><input id="new-config-key" placeholder="例如 ONEBOT_V11_WS_URLS" autocomplete="off"></label>
       <label class="field"><span>配置值</span><input id="new-config-value" placeholder="请输入配置值"></label>
       <p id="modal-error" class="form-error"></p>
       <div class="modal-actions">
@@ -639,6 +653,7 @@
   </div>
 
   <div id="toast-stack" class="toast-stack" aria-live="polite"></div>
-  <script src="./assets/app.js?v=1.3.10" defer></script>
+  <script src="./assets/config-fields.js?v=1.3.11-config" defer></script>
+  <script src="./assets/app.js?v=1.3.11-config" defer></script>
 </body>
 </html>

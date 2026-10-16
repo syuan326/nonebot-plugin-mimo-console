@@ -84,6 +84,17 @@ http://127.0.0.1:8080/mimo-console/
 
 超级用户也可以发送 `mimo控制台` 或 `NoneBot控制台` 获取访问地址。
 
+### 核心配置界面
+
+核心配置按用途分组，可搜索中文名称、字段名和用途。常用字段提供日志级别下拉选择、
+逐行 ID 编辑与 JSON 校验；其他字段保留通用编辑。新增配置可以从常用字段中选择。
+修改会显示待保存数量，切换页面时保留草稿，也可以统一撤销。
+
+页面标明当前编辑的 dotenv 文件，公共 `.env` 与系统环境变量不合并展示；
+插件专属配置在对应插件详情中编辑。保存时自动备份，重启 NoneBot 后生效。
+OneBot 连接区域提供反向 WebSocket 多账号接入说明和地址复制，地址根据当前网页生成。
+客户端位于其他设备或反向代理后时，请核对并使用客户端实际可访问的 NoneBot 地址。
+
 ## Docker 部署预览
 
 默认会自动识别普通 Python、无 Agent 的 Docker 容器和 Docker + Mimo Agent。
@@ -124,6 +135,12 @@ uv sync --all-groups
 uv run poe test
 uv run ruff check .
 uv build
+```
+
+前端配置转换逻辑使用 Node.js 内置测试运行器检查，无需安装 npm 依赖：
+
+```bash
+node --test tests/config-fields.test.cjs
 ```
 
 项目使用 GPL-3.0 协议。

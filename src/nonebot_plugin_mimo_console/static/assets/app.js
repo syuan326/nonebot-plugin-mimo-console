@@ -22,6 +22,8 @@ const state = {
   configItems: [],
   configOriginal: new Map(),
   configChanges: new Map(),
+  configAdded: new Set(),
+  configCategory: "全部设置",
   logs: [],
   logAfter: 0,
   logFollow: true,
@@ -156,6 +158,9 @@ async function bootstrap() {
 }
 
 function bindEvents() {
+  window.addEventListener("beforeunload", (event) => {
+    if (state.configChanges.size) { event.preventDefault(); event.returnValue = ""; }
+  });
   $("#auth-form").addEventListener("submit", handleAuth);
   $("#toggle-password").addEventListener("click", () => {
     const input = $("#password");
@@ -1309,12 +1314,7 @@ async function manageDependency(action, name, button) {
 }
 
 function configGroup(key) {
-  if (key.startsWith("MIMO_CONSOLE_")) return "Mimo Console";
-  if (["DRIVER", "HOST", "PORT", "ENVIRONMENT", "LOG_LEVEL", "SUPERUSERS", "COMMAND_START", "COMMAND_SEP"].includes(key)) {
-    return "NoneBot 核心";
-  }
-  const namespace = key.match(/^([A-Z][A-Z0-9]*)_/u)?.[1];
-  return namespace ? `${namespace} 配置` : "其他配置";
+  return MimoConfigUI.describe({ key, value: "" }).group;
 }
 
 async function fetchConfigData({ preserveChanges = false } = {}) {
@@ -1323,12 +1323,16 @@ async function fetchConfigData({ preserveChanges = false } = {}) {
   state.configItems = data.items || [];
   state.configOriginal = new Map(state.configItems.map((item) => [item.key, item.value]));
   state.configChanges = pendingChanges || new Map();
-  $("#config-path").textContent = data.path;
+  if (!preserveChanges) state.configAdded.clear();
+  $("#config-path").textContent = String(data.path || "").split(/[\\/]/).pop() || "配置文件";
+  $("#config-path").title = data.path || "";
   updateSaveBar();
   return data;
 }
 
 async function loadConfig() {
+  // Keep drafts intact when revisiting this page or pressing Refresh.
+  if (state.configChanges.size) { renderConfig(); updateSaveBar(); return; }
   try {
     await fetchConfigData();
     renderConfig();
@@ -1369,6 +1373,8 @@ async function restoreConfigBackup() {
       body: JSON.stringify({ backup_id: backupId }),
     });
     toast("配置已还原，请重启 NoneBot 使其生效", "warning");
+    state.configChanges.clear();
+    state.configAdded.clear();
     await loadConfig();
   } catch (error) {
     toast(error.message, "error");
@@ -1379,24 +1385,65 @@ async function restoreConfigBackup() {
 
 function renderConfig() {
   const query = $("#config-search").value.trim().toLowerCase();
+  const descriptions = {
+    "运行设置": ["01", "调整服务运行与日志输出"],
+    "OneBot 连接": ["02", "连接 OneBot 客户端，多个机器人账号共用一份适配器"],
+    "消息与权限": ["03", "决定哪些用户可以与机器人交互"],
+    "官方 QQ 接口": ["04", "配置官方 QQ 机器人开放平台账号"],
+    "控制台设置": ["05", "管理面板的访问与功能设置"],
+    "其他配置": ["06", "当前文件中的其他环境变量"],
+  };
+  const coreItems = state.configItems.filter((item) => !state.plugins.some((plugin) => pluginConfigKeys(plugin).has(item.key)));
+  const counts = new Map();
+  coreItems.forEach((item) => counts.set(configGroup(item.key), (counts.get(configGroup(item.key)) || 0) + 1));
+  const categories = ["全部设置", ...Object.keys(descriptions).filter((name) => counts.has(name))];
+  if (!categories.includes(state.configCategory)) state.configCategory = "全部设置";
+  $("#config-summary").textContent = `${coreItems.length} 项配置 · ${counts.size} 个分组`;
+  $("#config-categories").innerHTML = categories.map((name) => `<button type="button" class="config-category${state.configCategory === name ? " active" : ""}" data-category="${escapeHtml(name)}" aria-pressed="${state.configCategory === name}">${escapeHtml(name)}<span>${name === "全部设置" ? coreItems.length : counts.get(name)}</span></button>`).join("");
+  $$(".config-category").forEach((button) => button.addEventListener("click", () => {
+    state.configCategory = button.dataset.category;
+    renderConfig();
+    $$(".config-category").find((item) => item.dataset.category === state.configCategory)?.focus();
+  }));
+  const endpoint = new URL("/onebot/v11/ws", location.origin);
+  endpoint.protocol = location.protocol === "https:" ? "wss:" : "ws:";
+  $("#config-ws-endpoint").textContent = endpoint.href;
+  $("#copy-ws-endpoint").onclick = async () => {
+    try { await navigator.clipboard.writeText(endpoint.href); toast("连接地址已复制"); }
+    catch (_) { toast("未能访问剪贴板，请选中地址后复制。", "warning"); }
+  };
+  $("#config-connect-guide").classList.toggle("hidden", !["全部设置", "OneBot 连接"].includes(state.configCategory) || Boolean(query));
   const groups = new Map();
-  state.configItems
-    .filter((item) => (
-      item.key.toLowerCase().includes(query)
-      && !state.plugins.some((plugin) => pluginConfigKeys(plugin).has(item.key))
-    ))
+  coreItems
+    .filter((item) => {
+      const spec = MimoConfigUI.describe(item);
+      return [item.key, spec.label, spec.hint, spec.group].join(" ").toLowerCase().includes(query)
+        && (state.configCategory === "全部设置" || state.configCategory === spec.group);
+    })
     .forEach((item) => {
       const name = configGroup(item.key);
       if (!groups.has(name)) groups.set(name, []);
       groups.get(name).push(item);
     });
   $("#config-groups").innerHTML = groups.size
-    ? [...groups].map(([name, items]) =>
-      `<section class="config-group"><header class="config-group-head"><h2>${escapeHtml(name)}</h2><span>${items.length} 项配置</span></header>${items.map(configItemHtml).join("")}</section>`,
+    ? [...groups].sort(([a], [b]) => Object.keys(descriptions).indexOf(a) - Object.keys(descriptions).indexOf(b)).map(([name, items]) =>
+      `<section class="config-group"><header class="config-group-head"><div class="config-group-title"><span class="config-group-number" aria-hidden="true">${descriptions[name]?.[0] || "·"}</span><div><h2>${escapeHtml(name)}</h2><p>${escapeHtml(descriptions[name]?.[1] || "")}</p></div></div><span>${items.length} 项</span></header>${items.map(configItemHtml).join("")}</section>`,
     ).join("")
-    : '<div class="empty-state">没有找到匹配的配置</div>';
+    : '<div class="empty-state config-empty"><strong>没有找到匹配的配置</strong><p>试试搜索中文名称或字段名，或切换到「全部设置」。</p></div>';
   const configGroups = $("#config-groups");
-  $$(".config-input", configGroups).forEach((input) => input.addEventListener("input", () => changeConfig(input.dataset.key, input.value)));
+  $$(".config-input", configGroups).forEach((input) => input.addEventListener("input", () => {
+    const item = state.configItems.find((entry) => entry.key === input.dataset.key);
+    const value = MimoConfigUI.fromEditor(item, input.type === "checkbox" ? String(input.checked) : input.value);
+    changeConfig(item.key, value);
+    const error = MimoConfigUI.validate(item, value);
+    input.setAttribute("aria-invalid", String(Boolean(error)));
+    const row = input.closest(".config-item");
+    row.classList.toggle("config-item-changed", state.configChanges.has(item.key));
+    row.querySelector(".config-field-error").textContent = error;
+    row.querySelector(".config-field-error").hidden = !error;
+    const toggleLabel = row.querySelector(".config-switch-state");
+    if (toggleLabel) toggleLabel.textContent = input.checked ? "已开启" : "已关闭";
+  }));
   $$(".secret-toggle", configGroups).forEach((button) => button.addEventListener("click", () => {
     const input = $(`.config-input[data-key="${CSS.escape(button.dataset.key)}"]`, configGroups);
     input.type = input.type === "password" ? "text" : "password";
@@ -1406,26 +1453,59 @@ function renderConfig() {
 
 function configItemHtml(item) {
   const value = state.configChanges.has(item.key) ? state.configChanges.get(item.key) : item.value;
-  return `<div class="config-item"><div class="config-key"><strong>${escapeHtml(item.key)}</strong><span>${item.secret ? "敏感配置 · 留空可清除" : "环境变量"}</span></div><div class="config-input-wrap"><input class="config-input" data-key="${escapeHtml(item.key)}" type="${item.secret ? "password" : "text"}" value="${escapeHtml(value)}">${item.secret ? `<button class="secret-toggle" data-key="${escapeHtml(item.key)}" type="button">显示</button>` : ""}</div></div>`;
+  const spec = MimoConfigUI.describe(item);
+  const editorValue = MimoConfigUI.toEditor({ ...item, value });
+  const key = escapeHtml(item.key);
+  const id = `config-field-${key}`;
+  const attributes = `id="${id}" class="config-input" data-key="${key}" aria-describedby="${id}-hint ${id}-error" autocomplete="off" aria-invalid="${Boolean(state.configChanges.has(item.key) && MimoConfigUI.validate(item, value))}"`;
+  let control;
+  if (spec.kind === "select") {
+    const options = [...new Set([...spec.options, editorValue])];
+    control = `<select ${attributes}>${options.map((option) => `<option value="${escapeHtml(option)}"${option === editorValue ? " selected" : ""}>${escapeHtml(option)}</option>`).join("")}</select>`;
+  } else if (["ids", "json"].includes(spec.kind)) {
+    control = `<textarea ${attributes} rows="${spec.kind === "ids" ? 3 : 4}" spellcheck="false" placeholder="${spec.kind === "ids" ? "每行填写一个用户 ID" : "填写 JSON 格式的配置"}">${escapeHtml(editorValue)}</textarea>`;
+  } else if (spec.kind === "boolean") {
+    control = `<label class="config-boolean"><input ${attributes} type="checkbox" role="switch" ${editorValue === "true" ? "checked" : ""}><span class="config-switch-track" aria-hidden="true"></span><span class="config-switch-state">${editorValue === "true" ? "已开启" : "已关闭"}</span></label>`;
+  } else {
+    control = `<input ${attributes} type="${spec.secret ? "password" : spec.kind === "port" ? "number" : "text"}" ${spec.kind === "port" ? 'min="1" max="65535" step="1"' : ""} value="${escapeHtml(editorValue)}">${spec.secret ? `<button class="secret-toggle" data-key="${key}" type="button" aria-label="显示 ${escapeHtml(spec.label)}">显示</button>` : ""}`;
+  }
+  const error = state.configChanges.has(item.key) ? MimoConfigUI.validate(item, value) : "";
+  return `<div class="config-item${state.configChanges.has(item.key) ? " config-item-changed" : ""}"><div class="config-key"><label for="${id}">${escapeHtml(spec.label)}${spec.secret ? '<span class="config-sensitive">敏感</span>' : ""}</label><code>${key}</code><p id="${id}-hint">${escapeHtml(spec.hint)}</p></div><div class="config-control"><div class="config-input-wrap">${control}</div>${spec.kind === "ids" ? '<span class="config-control-note">逐行填写，保存时自动转换为 JSON 数组</span>' : spec.secret ? '<span class="config-control-note">保留遮罩以保持原值；留空后保存将清除</span>' : ""}<p id="${id}-error" class="config-field-error" ${error ? "" : "hidden"}>${escapeHtml(error)}</p></div></div>`;
 }
 
 function changeConfig(key, value) {
-  if (value === state.configOriginal.get(key)) state.configChanges.delete(key);
+  const item = state.configItems.find((entry) => entry.key === key) || { key, value: "" };
+  if (!state.configAdded.has(key) && MimoConfigUI.equivalent(item, value, state.configOriginal.get(key))) state.configChanges.delete(key);
   else state.configChanges.set(key, value);
   updateSaveBar();
 }
 
 function updateSaveBar() {
   $("#save-bar").classList.toggle("show", state.configChanges.size > 0);
+  const errors = [...state.configChanges].filter(([key, value]) => {
+    const item = state.configItems.find((entry) => entry.key === key) || { key, value: "" };
+    return Boolean(MimoConfigUI.validate(item, value));
+  });
+  $("#config-save-status").textContent = errors.length
+    ? `${errors.length} 项需要修正 · 修改尚未保存`
+    : `${state.configChanges.size} 项待保存 · 重启后生效`;
+  $("#save-config").disabled = errors.length > 0;
 }
 
 async function saveConfig() {
   if (!state.configChanges.size) return;
+  for (const [key, value] of state.configChanges) {
+    const item = state.configItems.find((entry) => entry.key === key) || { key, value: "" };
+    const error = MimoConfigUI.validate(item, value);
+    if (error) { toast(`${key}：${error}`, "error"); return; }
+  }
   const button = $("#save-config");
   button.disabled = true;
   try {
     await api("/config", { method: "PUT", body: JSON.stringify({ values: Object.fromEntries(state.configChanges) }) });
     toast("配置已保存，重启 NoneBot 后生效", "warning");
+    state.configChanges.clear();
+    state.configAdded.clear();
     await loadConfig();
   } catch (error) {
     toast(error.message, "error");
@@ -1435,6 +1515,9 @@ async function saveConfig() {
 }
 
 function discardConfig() {
+  state.configItems = state.configItems.filter((item) => !state.configAdded.has(item.key));
+  state.configAdded.forEach((key) => state.configOriginal.delete(key));
+  state.configAdded.clear();
   state.configChanges.clear();
   renderConfig();
   updateSaveBar();
@@ -1444,6 +1527,18 @@ function showModal(show) {
   $("#modal").classList.toggle("hidden", !show);
   $("#modal-error").textContent = "";
   if (show) {
+    $("#config-preset").innerHTML = '<option value="">自定义配置</option>' + Object.entries(MimoConfigUI.fields)
+      .filter(([key]) => !state.configItems.some((item) => item.key === key))
+      .map(([key, spec]) => `<option value="${escapeHtml(key)}">${escapeHtml(spec.label)} · ${escapeHtml(key)}</option>`).join("");
+    $("#config-preset").onchange = () => {
+      const key = $("#config-preset").value;
+      const spec = MimoConfigUI.fields[key];
+      $("#new-config-key").value = key;
+      $("#new-config-value").value = spec?.initial || "";
+      $("#config-preset-hint").textContent = spec?.hint || "仅添加组件实际支持的配置字段；添加后仍需保存才会写入文件。";
+      $("#modal-error").textContent = "";
+    };
+    $("#config-preset-hint").textContent = "仅添加组件实际支持的配置字段；添加后仍需保存才会写入文件。";
     $("#new-config-key").value = "";
     $("#new-config-value").value = "";
     $("#new-config-key").focus();
@@ -1461,13 +1556,20 @@ function addConfig() {
     $("#modal-error").textContent = "这个配置已经存在";
     return;
   }
+  const spec = MimoConfigUI.fields[key];
+  const newItem = { key, value, secret: Boolean(spec?.secret || /TOKEN|SECRET|PASSWORD|PASSWD|COOKIE|API_KEY|ACCESS_KEY|CREDENTIAL|AUTHORIZATION|_BOTS$/.test(key)) };
+  const error = MimoConfigUI.validate(newItem, value);
+  if (error) { $("#modal-error").textContent = error; return; }
   state.configItems.push({
     key,
-    value: "",
-    secret: /TOKEN|SECRET|PASSWORD|COOKIE|API_KEY/.test(key),
+    value,
+    secret: newItem.secret,
   });
   state.configOriginal.set(key, "");
   state.configChanges.set(key, value);
+  state.configAdded.add(key);
+  state.configCategory = "全部设置";
+  $("#config-search").value = "";
   showModal(false);
   renderConfig();
   updateSaveBar();
