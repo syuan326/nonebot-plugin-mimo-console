@@ -26,7 +26,12 @@ def run_loading_script(source: str) -> subprocess.CompletedProcess[str]:
 class PackageTests(unittest.TestCase):
     def test_static_assets_are_packaged(self) -> None:
         static = ROOT / "src" / "nonebot_plugin_mimo_console" / "static"
-        for relative in ("index.html", "assets/styles.css", "assets/app.js"):
+        for relative in (
+            "index.html",
+            "assets/styles.css",
+            "assets/app.js",
+            "assets/config-fields.js",
+        ):
             path = static / relative
             self.assertTrue(path.is_file(), relative)
             self.assertGreater(path.stat().st_size, 100)
