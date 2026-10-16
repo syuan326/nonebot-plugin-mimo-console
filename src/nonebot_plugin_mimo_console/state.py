@@ -5,6 +5,7 @@ from pathlib import Path
 
 from .backends import ConfigurationBackend
 from .background import BackgroundStore
+from .branding import BrandingStore
 from .config import ConsoleConfig
 from .deployment import DeploymentDetection
 from .disabled import DisabledStore
@@ -26,5 +27,6 @@ class ConsoleState:
     background: BackgroundStore
     release_cache: LatestReleaseCache
     disabled: DisabledStore
+    branding: BrandingStore
     setup_token: str | None = None
     log_sink_id: int | None = None

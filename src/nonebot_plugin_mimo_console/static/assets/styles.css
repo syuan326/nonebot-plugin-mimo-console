@@ -2740,6 +2740,56 @@ a { color: inherit; text-decoration: none; }
   margin-bottom: 0;
 }
 
+/* Shared site identity */
+.brand-logo { position: relative; overflow: hidden; flex-shrink: 0; }
+.brand-logo img { display: block; width: 100%; height: 100%; object-fit: contain; background: var(--surface); }
+.brand-logo img[hidden], .brand-logo span[hidden], .branding-tab [hidden] { display: none; }
+.brand-logo:has(img:not([hidden])) { background: var(--surface); box-shadow: var(--shadow); border: 1px solid var(--line); }
+.sidebar-brand { flex: 1; }
+.sidebar-brand strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sidebar-brand span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#auth-brand-title { overflow-wrap: anywhere; }
+.branding-card { padding: 24px; margin-bottom: 20px; }
+.branding-card .card-header { align-items: flex-start; margin-bottom: 22px; }
+.branding-card .card-header p { margin: 8px 0 0; color: var(--muted); font-size: 12px; }
+.branding-workspace { display: grid; grid-template-columns: minmax(220px, .85fr) minmax(260px, 1.15fr); gap: 28px; align-items: start; }
+.branding-preview { min-width: 0; overflow: hidden; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-soft); }
+.branding-browser-bar { display: flex; align-items: center; gap: 12px; height: 36px; padding: 0 12px; border-bottom: 1px solid var(--line); background: var(--surface-inset); }
+.branding-browser-dots { flex-shrink: 0; color: var(--muted-2); font-size: 8px; letter-spacing: 2px; }
+.branding-tab { display: flex; min-width: 0; align-items: center; gap: 6px; align-self: end; padding: 7px 10px; border-radius: 6px 6px 0 0; background: var(--surface-soft); color: var(--muted); font-size: 10px; }
+#branding-tab-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#branding-tab-icon { width: 13px; height: 13px; flex-shrink: 0; object-fit: contain; }
+#branding-tab-initial { color: var(--accent); font-size: 11px; font-weight: 700; }
+.branding-preview-body { display: flex; min-height: 190px; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 24px 18px; }
+.branding-preview-logo { display: grid; width: 62px; height: 62px; margin-bottom: 4px; place-items: center; border-radius: 17px; color: white; background: var(--accent); box-shadow: 0 6px 18px var(--accent-soft); font-size: 28px; font-weight: 700; }
+.branding-preview-body > strong { max-width: 100%; overflow-wrap: anywhere; color: var(--text); text-align: center; font-size: 16px; }
+.branding-preview-body > span { color: var(--muted); font-size: 11px; }
+.branding-preview-caption { padding: 10px 12px; border-top: 1px solid var(--line); color: var(--muted); background: var(--surface); text-align: center; font-size: 10px; line-height: 1.7; }
+.branding-form { min-width: 0; }
+.branding-form .field { margin-bottom: 0; }
+.branding-form .field > span { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.branding-form .field small { color: var(--muted); font-size: 10px; font-weight: 400; }
+.branding-field-help { margin: 8px 0 0; color: var(--muted); font-size: 11px; line-height: 1.8; }
+.branding-icon-field { margin-top: 23px; }
+.branding-field-label { display: block; margin-bottom: 10px; color: var(--text-soft); font-size: 12px; font-weight: 600; }
+.branding-icon-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+#branding-icon-status { max-width: 100%; overflow-wrap: anywhere; color: var(--muted); font-size: 11px; }
+.branding-save-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin-top: 24px; padding-top: 18px; border-top: 1px solid var(--line); }
+.branding-save-row > span { color: var(--muted); font-size: 11px; }
+.branding-save-row > div { display: flex; gap: 8px; }
+#branding-error { margin: 16px 0 0; }
+#branding-error[hidden] { display: none; }
+#branding-title[aria-invalid="true"] { border-color: var(--color-red); }
+@media (max-width: 960px) {
+  .branding-workspace { grid-template-columns: 1fr; gap: 22px; }
+  .branding-preview-body { min-height: 160px; }
+}
+@media (max-width: 600px) {
+  .branding-card { padding: 18px; }
+  .branding-save-row { flex-direction: column; align-items: stretch; }
+  .branding-save-row > div { justify-content: flex-end; }
+}
+
 /* Configuration workspace */
 #page-config { padding-bottom: 76px; }
 .config-eyebrow { display: block; margin-bottom: 8px; color: var(--accent); font-size: 10px; font-weight: 700; letter-spacing: .12em; }

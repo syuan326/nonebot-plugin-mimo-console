@@ -159,6 +159,7 @@ jobs:
               "nonebot_plugin_mimo_console/static/index.html",
               "nonebot_plugin_mimo_console/static/assets/app.js",
               "nonebot_plugin_mimo_console/static/assets/config-fields.js",
+              "nonebot_plugin_mimo_console/static/assets/favicon.svg",
               "nonebot_plugin_mimo_console/static/assets/styles.css",
           }
           with ZipFile(wheel) as archive:

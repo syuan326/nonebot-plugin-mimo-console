@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="color-scheme" content="light dark">
   <title>Mimo Console</title>
+  <link rel="icon" id="console-favicon" href="./assets/favicon.svg">
   <script>
     (function () {
       try {
@@ -19,15 +20,15 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="./assets/styles.css?v=1.3.11-config">
+  <link rel="stylesheet" href="./assets/styles.css?v=1.3.12-branding">
 </head>
 <body>
   <div id="bg-layer" class="bg-layer"></div>
   <section id="auth-screen" class="auth-screen">
     <div class="auth-container">
       <div class="auth-header">
-        <div class="auth-logo">M</div>
-        <h1>Mimo Console</h1>
+        <div class="auth-logo brand-logo"><span data-brand-initial>M</span><img data-brand-icon alt="" hidden></div>
+        <h1 id="auth-brand-title">Mimo Console</h1>
         <p>NoneBot2 管理面板</p>
       </div>
       <div class="auth-card">
@@ -65,10 +66,10 @@
   <div id="app" class="app hidden">
     <aside id="sidebar" class="sidebar">
       <div class="sidebar-header">
-        <div class="sidebar-logo">M</div>
+        <div class="sidebar-logo brand-logo"><span data-brand-initial>M</span><img data-brand-icon alt="" hidden></div>
         <div class="sidebar-brand">
-          <strong>Mimo</strong>
-          <span>Console</span>
+          <strong id="sidebar-brand-title">Mimo</strong>
+          <span id="sidebar-brand-caption">Console</span>
         </div>
         <button id="sidebar-close" class="icon-btn sidebar-close" aria-label="关闭菜单"></button>
       </div>
@@ -462,14 +463,32 @@
             <div class="page-header">
               <div>
                 <h1>外观</h1>
-                <p class="text-muted">自定义主题与背景图</p>
+                <p class="text-muted">定义控制台的名称、图标与视觉风格。</p>
               </div>
             </div>
             <div class="notice info">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
-              <span>所有调整都会立即生效，无需重启。背景图会同步给所有管理员，主题偏好仅保存在当前浏览器。</span>
+              <span>站点标识与背景保存在服务器，刷新后加载最新设置；主题偏好仅保存在当前浏览器。均无需重启。</span>
             </div>
           </div>
+
+          <article class="card branding-card">
+            <div class="card-header"><div><h2>站点标识</h2><p>让每个入口都使用你熟悉的名字。</p></div><span class="badge">所有浏览器</span></div>
+            <div class="branding-workspace">
+              <div class="branding-preview" aria-label="站点标识预览">
+                <div class="branding-browser-bar"><span class="branding-browser-dots" aria-hidden="true">● ● ●</span><div class="branding-tab"><span id="branding-tab-initial">M</span><img id="branding-tab-icon" alt="" hidden><span id="branding-tab-title">Mimo Console</span></div></div>
+                <div class="branding-preview-body"><div class="branding-preview-logo brand-logo"><span id="branding-preview-initial">M</span><img id="branding-preview-icon" alt="" hidden></div><strong id="branding-preview-title">Mimo Console</strong><span>NoneBot2 管理面板</span></div>
+                <div class="branding-preview-caption">实时预览 · 保存后应用到登录页与侧边栏</div>
+              </div>
+              <form id="branding-form" class="branding-form">
+                <label class="field" for="branding-title"><span>站点标题 <small id="branding-title-count">12 / 80</small></span><input id="branding-title" maxlength="80" required autocomplete="off" placeholder="例如 帕朵的控制台" aria-describedby="branding-title-help"></label>
+                <p id="branding-title-help" class="branding-field-help">用于浏览器标签、登录页和侧边栏，最多 80 个字符。</p>
+                <div class="branding-icon-field"><span class="branding-field-label">站点图标</span><div class="branding-icon-actions"><button id="branding-upload" class="btn btn-secondary btn-sm" type="button">上传图标</button><button id="branding-remove" class="btn btn-ghost btn-sm" type="button" disabled>移除图标</button><span id="branding-icon-status">使用默认图标</span></div><input id="branding-icon-file" type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/x-icon,image/vnd.microsoft.icon,.ico" hidden><p class="branding-field-help">PNG、JPG、WebP、GIF 或 ICO，不超过 2MB。建议使用正方形图片。</p></div>
+                <p id="branding-error" class="form-error" role="alert" hidden></p>
+                <div class="branding-save-row"><span id="branding-save-status" aria-live="polite">已与服务器同步</span><div><button id="branding-reset" class="btn btn-ghost btn-sm" type="button">恢复默认</button><button id="branding-save" class="btn btn-primary btn-sm" type="submit" disabled>保存站点标识</button></div></div>
+              </form>
+            </div>
+          </article>
 
           <div class="appearance-grid">
             <article class="card theme-card">
@@ -653,7 +672,7 @@
   </div>
 
   <div id="toast-stack" class="toast-stack" aria-live="polite"></div>
-  <script src="./assets/config-fields.js?v=1.3.11-config" defer></script>
-  <script src="./assets/app.js?v=1.3.11-config" defer></script>
+  <script src="./assets/config-fields.js?v=1.3.12-branding" defer></script>
+  <script src="./assets/app.js?v=1.3.12-branding" defer></script>
 </body>
 </html>

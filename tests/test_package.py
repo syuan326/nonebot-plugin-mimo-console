@@ -31,6 +31,7 @@ class PackageTests(unittest.TestCase):
             "assets/styles.css",
             "assets/app.js",
             "assets/config-fields.js",
+            "assets/favicon.svg",
         ):
             path = static / relative
             self.assertTrue(path.is_file(), relative)

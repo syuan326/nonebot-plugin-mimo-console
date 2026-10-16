@@ -2,6 +2,7 @@
 
 const rootPath = location.pathname.replace(/\/$/, "");
 const storageKey = "mimo-console-token";
+const BRANDING_DEFAULT_TITLE = "Mimo Console";
 const state = {
   token: localStorage.getItem(storageKey) || "",
   username: "",
@@ -33,6 +34,13 @@ const state = {
   detailSource: null,
   background: { source: "none", url: "" },
   theme: null,
+  branding: { title: BRANDING_DEFAULT_TITLE, icon_url: "" },
+  brandingDraft: null,
+  brandingLoaded: false,
+  brandingBusy: false,
+  brandingReading: false,
+  brandingReadId: 0,
+  brandingError: "",
   version: null,
   proxy: { proxy: "", presets: [], tests: {}, testing: false, testRunId: 0 },
 };
@@ -141,6 +149,7 @@ async function bootstrap() {
   applyTheme(loadThemeLocal());
   applyVisualSettings(loadVisualSettings());
   loadBackground();
+  await loadBranding();
   try {
     const authStatus = await api("/auth/status");
     setAuthMode(authStatus.configured);
@@ -159,7 +168,7 @@ async function bootstrap() {
 
 function bindEvents() {
   window.addEventListener("beforeunload", (event) => {
-    if (state.configChanges.size) { event.preventDefault(); event.returnValue = ""; }
+    if (state.configChanges.size || brandingHasChanges()) { event.preventDefault(); event.returnValue = ""; }
   });
   $("#auth-form").addEventListener("submit", handleAuth);
   $("#toggle-password").addEventListener("click", () => {
@@ -213,6 +222,36 @@ function bindEvents() {
   );
   $("#accent-custom-input").addEventListener("input", (event) => changeTheme({ accent: event.target.value }));
   $("#theme-reset").addEventListener("click", resetTheme);
+  $("#branding-title").addEventListener("input", (event) => {
+    if (!state.brandingDraft) return;
+    state.brandingDraft.title = event.target.value;
+    state.brandingError = "";
+    renderBrandingEditor();
+  });
+  $("#branding-upload").addEventListener("click", () => $("#branding-icon-file").click());
+  $("#branding-icon-file").addEventListener("change", (event) => selectBrandingIcon(event.target));
+  $("#branding-remove").addEventListener("click", () => {
+    state.brandingReadId += 1;
+    state.brandingReading = false;
+    if (!state.brandingDraft) return;
+    state.brandingDraft.icon_action = state.branding.icon_url ? "remove" : "keep";
+    state.brandingDraft.icon_data_url = "";
+    state.brandingDraft.icon_name = "";
+    state.brandingError = "";
+    renderBrandingEditor();
+  });
+  $("#branding-form").addEventListener("submit", (event) => {
+    event.preventDefault();
+    if (!state.brandingDraft || state.brandingBusy || state.brandingReading) return;
+    const { title, icon_action, icon_data_url } = state.brandingDraft;
+    persistBranding({ title: title.trim(), icon_action, icon_data_url });
+  });
+  $("#branding-reset").addEventListener("click", () => {
+    if (state.brandingBusy || !state.brandingLoaded) return;
+    state.brandingReadId += 1;
+    state.brandingReading = false;
+    persistBranding({ title: BRANDING_DEFAULT_TITLE, icon_action: "remove", icon_data_url: "" });
+  });
   $("#restart-button").addEventListener("click", restartNonebot);
   $("#deployment-refresh").addEventListener("click", loadDeploymentOperations);
   $("#github-install-button").addEventListener("click", () => showGithubModal(true));
@@ -369,6 +408,11 @@ async function refreshCurrent() {
     if (state.page === "dependencies") await loadDependencies();
     if (state.page === "config") await loadConfig();
     if (state.page === "logs") await loadLogs();
+    if (state.page === "appearance") {
+      if (!brandingHasChanges() && !state.brandingReading && !state.brandingBusy) await loadBranding();
+      await loadBackground();
+      refreshAppearance();
+    }
     toast("已刷新");
   } catch (error) {
     toast(error.message, "error");
@@ -1881,9 +1925,141 @@ async function loadBackground() {
 }
 
 function refreshAppearance() {
+  renderBrandingEditor();
   updateAppearanceUi(state.background);
   updateThemeUi(state.theme || loadThemeLocal());
   applyVisualSettings(loadVisualSettings());
+}
+
+function brandingHasChanges() {
+  const draft = state.brandingDraft;
+  return Boolean(draft && (draft.title.trim() !== state.branding.title || draft.icon_action !== "keep"));
+}
+
+function brandingIconUrl(value) {
+  if (!value) return "";
+  try {
+    const url = new URL(String(value), location.origin);
+    const prefix = `${rootPath}/api/branding/icon/`;
+    return url.origin === location.origin && url.pathname.startsWith(prefix)
+      && /^[0-9a-f]{32}\.(png|jpg|gif|webp|ico)$/.test(url.pathname.slice(prefix.length))
+      ? url.pathname : "";
+  } catch (_) { return ""; }
+}
+
+function renderBrandImage(image, initial, url, letter) {
+  initial.textContent = letter;
+  initial.hidden = Boolean(url);
+  image.hidden = !url;
+  image.onerror = () => { image.hidden = true; initial.hidden = false; };
+  if (url) {
+    if (image.getAttribute("src") !== url) image.src = url;
+  } else image.removeAttribute("src");
+}
+
+function applyBranding(payload) {
+  const title = String(payload.title || BRANDING_DEFAULT_TITLE);
+  const icon = brandingIconUrl(payload.icon_url);
+  const letter = Array.from(title.trim())[0]?.toUpperCase() || "M";
+  state.branding = { title, icon_url: icon };
+  document.title = title;
+  $("#auth-brand-title").textContent = title;
+  $("#sidebar-brand-title").textContent = title === BRANDING_DEFAULT_TITLE ? "Mimo" : title;
+  $("#sidebar-brand-title").title = title;
+  $("#sidebar-brand-caption").textContent = title === BRANDING_DEFAULT_TITLE ? "Console" : "NoneBot 管理面板";
+  $$("[data-brand-icon]").forEach((image) => renderBrandImage(
+    image, image.parentElement.querySelector("[data-brand-initial]"), icon, letter,
+  ));
+  $("#console-favicon").href = icon || `${rootPath}/assets/favicon.svg`;
+}
+
+async function loadBranding() {
+  try {
+    const payload = await api("/branding");
+    applyBranding(payload);
+    state.brandingLoaded = true;
+    state.brandingDraft = { title: state.branding.title, icon_action: "keep", icon_data_url: "", icon_name: "" };
+    state.brandingError = "";
+  } catch (_) {
+    state.brandingError = "无法读取站点标识，请刷新页面后重试。";
+  }
+  renderBrandingEditor();
+}
+
+function renderBrandingEditor() {
+  const draft = state.brandingDraft || { title: state.branding.title, icon_action: "keep", icon_data_url: "" };
+  const title = draft.title.trim() || BRANDING_DEFAULT_TITLE;
+  const letter = Array.from(title)[0]?.toUpperCase() || "M";
+  const icon = draft.icon_action === "replace" ? draft.icon_data_url : draft.icon_action === "remove" ? "" : state.branding.icon_url;
+  $("#branding-preview-title").textContent = title;
+  $("#branding-tab-title").textContent = title;
+  renderBrandImage($("#branding-preview-icon"), $("#branding-preview-initial"), icon, letter);
+  renderBrandImage($("#branding-tab-icon"), $("#branding-tab-initial"), icon, letter);
+  const input = $("#branding-title");
+  if (document.activeElement !== input) input.value = draft.title;
+  $("#branding-title-count").textContent = `${Array.from(draft.title).length} / 80`;
+  const invalid = !draft.title.trim() || /[\u0000-\u001f\u007f]/.test(draft.title);
+  input.setAttribute("aria-invalid", String(invalid));
+  input.disabled = !state.brandingLoaded || state.brandingBusy;
+  $("#branding-icon-status").textContent = state.brandingReading ? "正在读取图片…" : draft.icon_name || (icon ? "已设置自定义图标" : "使用默认图标");
+  $("#branding-remove").disabled = !icon || state.brandingBusy;
+  $("#branding-upload").disabled = !state.brandingLoaded || state.brandingBusy;
+  $("#branding-reset").disabled = !state.brandingLoaded || state.brandingBusy;
+  $("#branding-save").disabled = !state.brandingLoaded || state.brandingBusy || state.brandingReading || invalid || !brandingHasChanges();
+  $("#branding-save").textContent = state.brandingBusy ? "正在保存…" : "保存站点标识";
+  $("#branding-form").setAttribute("aria-busy", String(state.brandingBusy || state.brandingReading));
+  $("#branding-save-status").textContent = !state.brandingLoaded ? "尚未读取设置" : state.brandingReading ? "正在读取图标" : brandingHasChanges() ? "预览尚未保存" : "已与服务器同步";
+  const titleError = invalid ? "请填写有效的站点标题，不能包含换行或控制字符。" : "";
+  $("#branding-error").textContent = state.brandingError || titleError;
+  $("#branding-error").hidden = !(state.brandingError || titleError);
+}
+
+async function selectBrandingIcon(input) {
+  const file = input.files?.[0];
+  if (!file || !state.brandingDraft || state.brandingBusy) return;
+  const revision = ++state.brandingReadId;
+  state.brandingError = "";
+  state.brandingReading = true;
+  renderBrandingEditor();
+  try {
+    const types = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", webp: "image/webp", gif: "image/gif", ico: "image/x-icon" };
+    const mime = types[file.name.split(".").pop().toLowerCase()];
+    if (!mime) throw new Error("请选择 PNG、JPG、WebP、GIF 或 ICO 图片。");
+    if (!file.size || file.size > 2 * 1024 * 1024) throw new Error("图标不能为空，大小不能超过 2MB。");
+    const data = await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = () => reject(new Error("无法读取图片，请重新选择。"));
+      reader.readAsDataURL(file);
+    });
+    const url = `data:${mime};base64,${String(data).split(",")[1]}`;
+    const image = new Image();
+    image.src = url;
+    try { await image.decode(); } catch (_) { throw new Error("无法打开这张图片，请换一张有效图标。"); }
+    if (revision !== state.brandingReadId) return;
+    Object.assign(state.brandingDraft, { icon_action: "replace", icon_data_url: url, icon_name: file.name });
+  } catch (error) {
+    if (revision === state.brandingReadId) state.brandingError = error.message;
+  } finally {
+    input.value = "";
+    if (revision === state.brandingReadId) { state.brandingReading = false; renderBrandingEditor(); }
+  }
+}
+
+async function persistBranding(payload) {
+  state.brandingBusy = true;
+  state.brandingError = "";
+  renderBrandingEditor();
+  try {
+    applyBranding(await api("/branding", { method: "PUT", body: JSON.stringify(payload) }));
+    state.brandingDraft = { title: state.branding.title, icon_action: "keep", icon_data_url: "", icon_name: "" };
+    toast("站点标识已保存，无需重启");
+  } catch (error) {
+    state.brandingError = error.message;
+  } finally {
+    state.brandingBusy = false;
+    renderBrandingEditor();
+  }
 }
 
 function updateAppearanceUi(data) {

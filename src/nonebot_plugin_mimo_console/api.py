@@ -8,6 +8,7 @@ import sys
 import time
 from collections import defaultdict, deque
 from email.message import Message
+from html import escape
 from typing import Annotated, Any, Literal, cast
 
 import httpx
@@ -19,6 +20,13 @@ from nonebot import get_driver, logger
 from pydantic import BaseModel, Field
 
 from .background import MAX_BACKGROUND_BYTES, BackgroundError, download_background
+from .branding import (
+    DEFAULT_TITLE,
+    ICON_MEDIA_TYPES,
+    MAX_ICON_DATA_URL,
+    BrandingError,
+    IconAction,
+)
 from .dependencies import dependency_snapshot
 from .readme import render_readme_html
 from .runtime import dashboard_snapshot, plugin_snapshot
@@ -59,6 +67,12 @@ class ConfigRestoreBody(BaseModel):
 
 class BackgroundUrlBody(BaseModel):
     url: str = Field(min_length=1, max_length=2048)
+
+
+class BrandingBody(BaseModel):
+    title: str = Field(min_length=1, max_length=80)
+    icon_action: IconAction = "keep"
+    icon_data_url: str = Field(default="", max_length=MAX_ICON_DATA_URL)
 
 
 class PluginActionBody(BaseModel):
@@ -751,6 +765,51 @@ def create_router(state: ConsoleState) -> APIRouter:
         state.logs.clear()
         return {"ok": True}
 
+    def branding_payload(snap: dict[str, str]) -> dict[str, str]:
+        filename = snap["icon_filename"]
+        return {
+            "title": snap["title"],
+            "icon_url": (
+                f"{state.config.mimo_console_path}/api/branding/icon/{filename}" if filename else ""
+            ),
+        }
+
+    @router.get("/api/branding")
+    async def get_branding() -> dict[str, str]:
+        # Public display settings are also needed on the login page.
+        return branding_payload(await asyncio.to_thread(state.branding.snapshot))
+
+    @router.put("/api/branding")
+    async def set_branding(
+        body: BrandingBody,
+        session: Annotated[Session, Depends(require_session)],
+    ) -> dict[str, str]:
+        try:
+            snapshot = await asyncio.to_thread(
+                state.branding.update, body.title, body.icon_action, body.icon_data_url
+            )
+        except BrandingError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except OSError as exc:
+            logger.error(f"[Mimo Console] 无法保存站点标识：{exc}")
+            raise HTTPException(status_code=500, detail="保存失败，请检查数据目录是否可写") from exc
+        return branding_payload(snapshot)
+
+    @router.get("/api/branding/icon/{filename}")
+    async def serve_branding_icon(filename: str) -> FileResponse:
+        try:
+            path = await asyncio.to_thread(state.branding.resolve_file, filename)
+        except BrandingError:
+            raise HTTPException(status_code=404, detail="图标不存在") from None
+        return FileResponse(
+            path,
+            media_type=ICON_MEDIA_TYPES[path.suffix],
+            headers={
+                "X-Content-Type-Options": "nosniff",
+                "Cache-Control": "public, max-age=31536000, immutable",
+            },
+        )
+
     def background_payload(snap: dict[str, Any]) -> dict[str, Any]:
         if snap["type"] == "url":
             if snap["filename"]:
@@ -1016,6 +1075,23 @@ def create_router(state: ConsoleState) -> APIRouter:
     @router.get("/", include_in_schema=False)
     async def index_page() -> HTMLResponse:
         html = index.read_text(encoding="utf-8")
+        branding = branding_payload(await asyncio.to_thread(state.branding.snapshot))
+        title = escape(branding["title"])
+        html = html.replace("<title>Mimo Console</title>", f"<title>{title}</title>")
+        html = html.replace(
+            '<h1 id="auth-brand-title">Mimo Console</h1>',
+            f'<h1 id="auth-brand-title">{title}</h1>',
+        )
+        sidebar_title = "Mimo" if branding["title"] == DEFAULT_TITLE else title
+        html = html.replace(
+            '<strong id="sidebar-brand-title">Mimo</strong>',
+            f'<strong id="sidebar-brand-title">{sidebar_title}</strong>',
+        )
+        if branding["icon_url"]:
+            html = html.replace(
+                'id="console-favicon" href="./assets/favicon.svg"',
+                f'id="console-favicon" href="{escape(branding["icon_url"], quote=True)}"',
+            )
         return HTMLResponse(html, headers={"Cache-Control": "no-store"})
 
     return router

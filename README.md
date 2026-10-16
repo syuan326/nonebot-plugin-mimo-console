@@ -95,6 +95,16 @@ http://127.0.0.1:8080/mimo-console/
 OneBot 连接区域提供反向 WebSocket 多账号接入说明和地址复制，地址根据当前网页生成。
 客户端位于其他设备或反向代理后时，请核对并使用客户端实际可访问的 NoneBot 地址。
 
+### 自定义站点标识
+
+在「外观 → 站点标识」中设置 WebUI 标题和图标。标题用于浏览器标签、登录页和侧边栏，
+最多 80 个字符；图标支持 PNG、JPG、WebP、GIF、ICO，大小不超过 2MB，同时用于 favicon。
+选择图片或编辑标题可实时预览，点击「保存站点标识」后立即应用，无需重启。
+可以单独移除图标，也可以恢复默认标题与图标。
+
+设置保存在 LocalStore 的 `branding.json` 和 `branding-icons/` 中；其他浏览器刷新后加载。
+未登录访客可读取公开的站点标识，修改操作需要管理员登录。
+
 ## Docker 部署预览
 
 默认会自动识别普通 Python、无 Agent 的 Docker 容器和 Docker + Mimo Agent。

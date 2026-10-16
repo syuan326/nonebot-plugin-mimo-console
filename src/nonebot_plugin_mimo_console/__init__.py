@@ -20,6 +20,7 @@ from .backends import (
     LocalPackageBackend,
 )
 from .background import BackgroundStore
+from .branding import BrandingStore
 from .config import ConsoleConfig
 from .deployment import detect_deployment
 from .disabled import DisabledStore
@@ -87,6 +88,10 @@ console_state = ConsoleState(
     disabled=DisabledStore(
         localstore.get_plugin_data_file("disabled_plugins.json"),
         protected=("nonebot_plugin_mimo_console",),
+    ),
+    branding=BrandingStore(
+        data_file=localstore.get_plugin_data_file("branding.json"),
+        image_dir=localstore.get_plugin_data_dir() / "branding-icons",
     ),
 )
 
