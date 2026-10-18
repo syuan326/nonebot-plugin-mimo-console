@@ -17,6 +17,7 @@ from .backends.base import PackageAction, PackageBackend, PackageRequest
 from .backends.local import LocalPackageBackend
 from .backends.local import build_nb_command as _build_nb_command
 from .backends.local import clean_output as _local_clean_output
+from .local_git import LocalGitUpdater
 
 REGISTRY_URL = "https://registry.nonebot.dev/plugins.json"
 STORE_URL = "https://nonebot.dev/store/plugins"
@@ -192,6 +193,7 @@ class PluginStore:
         self._fetched_at = 0.0
         self._fetch_lock = asyncio.Lock()
         self.action_lock = asyncio.Lock()
+        self.local_git = LocalGitUpdater()
 
     async def catalog(self, force: bool = False) -> list[dict[str, Any]]:
         if self._items and not force and time.time() - self._fetched_at < self.cache_seconds:
@@ -487,6 +489,55 @@ class PluginStore:
         result["project_link"] = operation.project_name
         return result
 
+    async def update_local_git_plugin(
+        self,
+        project_root: Path,
+        module_name: str,
+        repo: Path,
+        timeout: int,
+    ) -> dict[str, Any]:
+        async with self.action_lock:
+            operation = await self.local_git.update(repo, project_root, module_name, timeout)
+        if operation.status == "failed":
+            raise StoreError(operation.error or "Git 插件更新失败")
+        result = operation.as_dict()
+        result["project_link"] = repo.name
+        result["detail"] = (
+            "Git 插件已更新，重启 NoneBot 后生效；上游依赖如有变化请同步依赖"
+            if operation.restart_required
+            else "Git 插件已是最新版本"
+        )
+        return result
+
+    async def update_installed_plugin(
+        self,
+        project_root: Path,
+        module_name: str,
+        project_name: str,
+        timeout: int,
+    ) -> dict[str, Any]:
+        """Update an installed registry package without a store lookup."""
+        if not SAFE_MODULE_RE.fullmatch(module_name) or not SAFE_NAME_RE.fullmatch(project_name):
+            raise StoreError("插件安装信息不合法")
+        async with self.action_lock:
+            try:
+                operation = await self.backend.manage(
+                    PackageRequest(
+                        action="update",
+                        module_name=module_name,
+                        project_name=project_name,
+                        project_root=project_root,
+                    ),
+                    timeout,
+                )
+            except (OSError, ValueError, RuntimeError) as exc:
+                raise StoreError(str(exc)) from exc
+        if operation.status == "failed":
+            raise StoreError(operation.error or operation.output or "插件更新失败")
+        result = operation.as_dict()
+        result["project_link"] = operation.project_name
+        return result
+
     async def manage_dependency(
         self,
         project_root: Path,
@@ -525,6 +576,8 @@ class PluginStore:
     async def get_operation(self, operation_id: str) -> dict[str, Any] | None:
         if not OPERATION_ID_RE.fullmatch(operation_id):
             raise StoreError("操作 ID 不合法")
+        if operation_id in self.local_git.operations:
+            return self.local_git.operations[operation_id].as_dict()
         try:
             operation = await self.backend.get_operation(operation_id)
         except (OSError, ValueError, RuntimeError) as exc:
@@ -534,6 +587,11 @@ class PluginStore:
     async def list_operations(self) -> list[dict[str, Any]]:
         try:
             operations = await self.backend.list_operations()
+            operations = sorted(
+                [*operations, *self.local_git.operations.values()],
+                key=lambda operation: operation.created_at,
+                reverse=True,
+            )
         except (OSError, ValueError, RuntimeError) as exc:
             raise StoreError(str(exc)) from exc
         return [operation.as_dict() for operation in operations]

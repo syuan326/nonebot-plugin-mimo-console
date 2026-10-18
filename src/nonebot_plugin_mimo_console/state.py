@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
+from .access import AccessControl
 from .backends import ConfigurationBackend
 from .background import BackgroundStore
 from .branding import BrandingStore
@@ -28,5 +29,6 @@ class ConsoleState:
     release_cache: LatestReleaseCache
     disabled: DisabledStore
     branding: BrandingStore
+    access: AccessControl = field(default_factory=AccessControl)
     setup_token: str | None = None
     log_sink_id: int | None = None

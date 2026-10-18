@@ -9,6 +9,7 @@ import time
 from collections import defaultdict, deque
 from email.message import Message
 from html import escape
+from pathlib import Path
 from typing import Annotated, Any, Literal, cast
 
 import httpx
@@ -16,9 +17,10 @@ import tomlkit
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, UploadFile, status
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from nonebot import get_driver, logger
+from nonebot import get_bots, get_driver, get_loaded_plugins, logger
 from pydantic import BaseModel, Field
 
+from .access import PROTECTED, AccessProbe, AccessRule, AccessRuleConflict, AccessRuleEdit, subjects
 from .background import MAX_BACKGROUND_BYTES, BackgroundError, download_background
 from .branding import (
     DEFAULT_TITLE,
@@ -28,6 +30,7 @@ from .branding import (
     IconAction,
 )
 from .dependencies import dependency_snapshot
+from .local_git import annotate_git_plugins
 from .readme import render_readme_html
 from .runtime import dashboard_snapshot, plugin_snapshot
 from .security import AuthError, Session
@@ -346,13 +349,87 @@ def create_router(state: ConsoleState) -> APIRouter:
         disabled = state.disabled.names
         items = await asyncio.to_thread(plugin_snapshot)
         source_records = await asyncio.to_thread(source_plugin_records)
+        merged = merge_source_plugin_records(items, source_records, disabled)
+        merged = await asyncio.to_thread(
+            annotate_git_plugins,
+            merged,
+            state.config.project_root(),
+            state.deployment.backend_mode,
+        )
         return {
-            "items": merge_source_plugin_records(items, source_records, disabled),
+            "items": merged,
             "package_management": state.config.mimo_console_allow_package_management,
         }
 
+    def validate_access_plugin(name: str) -> None:
+        if name in PROTECTED:
+            raise HTTPException(status_code=400, detail="控制台和权限管理插件受保护")
+        if name != "nonebot" and name not in {plugin.id_ for plugin in get_loaded_plugins()}:
+            raise HTTPException(status_code=404, detail="插件未加载或不存在")
+
+    @router.get("/api/access")
+    async def access_rules(
+        session: Annotated[Session, Depends(require_session)],
+    ) -> dict[str, Any]:
+        return {
+            "rules": await state.access.rules(),
+            "bots": [{"adapter": bot.type, "bot_id": bot.self_id} for bot in get_bots().values()],
+            "plugins": [
+                {
+                    "name": plugin.id_,
+                    "title": plugin.metadata.name if plugin.metadata else plugin.id_,
+                }
+                for plugin in sorted(get_loaded_plugins(), key=lambda plugin: plugin.id_)
+                if plugin.id_ not in PROTECTED
+            ],
+            "disabled_plugins": sorted(state.disabled.names),
+        }
+
+    @router.put("/api/access/rule")
+    async def put_access_rule(
+        body: AccessRule,
+        session: Annotated[Session, Depends(require_session)],
+    ) -> dict[str, bool]:
+        validate_access_plugin(body.plugin)
+        await state.access.put(body)
+        return {"ok": True}
+
+    @router.post("/api/access/rule/delete")
+    async def delete_access_rule(
+        body: AccessRule,
+        session: Annotated[Session, Depends(require_session)],
+    ) -> dict[str, bool]:
+        # Persisted rules remain removable when their plugin is unloaded.
+        await state.access.remove(body)
+        return {"ok": True}
+
+    @router.patch("/api/access/rule")
+    async def edit_access_rule(
+        body: AccessRuleEdit,
+        session: Annotated[Session, Depends(require_session)],
+    ) -> dict[str, bool]:
+        validate_access_plugin(body.rule.plugin)
+        try:
+            await state.access.replace(body.original, body.rule)
+        except AccessRuleConflict as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        return {"ok": True}
+
+    @router.post("/api/access/preview")
+    async def preview_access(
+        body: AccessProbe,
+        session: Annotated[Session, Depends(require_session)],
+    ) -> dict[str, Any]:
+        validate_access_plugin(body.plugin)
+        if state.disabled.is_disabled(body.plugin):
+            return {"allow": False, "reason": "插件已整体禁用", "matched": None}
+        return await state.access.decide(
+            body.plugin,
+            subjects(body.adapter, body.bot_id, body.user_id, body.group_id, not body.group_id),
+        )
+
     @router.post("/api/plugins/{plugin_name}/action")
-    async def manage_loaded_source_plugin(
+    async def manage_loaded_plugin(
         plugin_name: str,
         body: PluginActionBody,
         session: Annotated[Session, Depends(require_session)],
@@ -379,15 +456,50 @@ def create_router(state: ConsoleState) -> APIRouter:
         if module_name == "nonebot_plugin_mimo_console":
             raise HTTPException(status_code=400, detail="不能在控制台中管理控制台自身")
         record = records.get(module_name)
-        if not isinstance(record, dict):
-            raise HTTPException(status_code=400, detail="该插件不是由 GitHub 源码安装")
-        project_name = str(record.get("project") or "")
-        repository = str(record.get("repository") or "")
-        if not project_name or not repository:
+        if item is None and not isinstance(record, dict):
+            raise HTTPException(status_code=404, detail="插件未加载或不存在")
+        if item and item.get("local_git_path"):
+            if body.action != "update":
+                raise HTTPException(status_code=400, detail="本地 Git 插件只支持在此更新")
+            if not item.get("update_supported"):
+                raise HTTPException(
+                    status_code=400, detail=item.get("update_reason") or "无法更新 Git 插件"
+                )
+            if state.store.action_lock.locked():
+                raise HTTPException(status_code=409, detail="另一个插件操作仍在进行中")
+            try:
+                return await state.store.update_local_git_plugin(
+                    state.config.project_root(),
+                    module_name,
+                    Path(item["local_git_path"]),
+                    state.config.mimo_console_package_timeout,
+                )
+            except (OSError, ValueError, StoreError) as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+        if isinstance(record, dict):
+            project_name = str(record.get("project") or "")
+            repository = str(record.get("repository") or "")
+        else:
+            if body.action != "update":
+                raise HTTPException(status_code=400, detail="该插件请通过插件商店卸载")
+            if not item.get("update_supported"):
+                raise HTTPException(
+                    status_code=400, detail=item.get("update_reason") or "该插件不支持在线更新"
+                )
+            project_name = str(item.get("distribution") or "")
+            repository = ""
+        if not project_name or (isinstance(record, dict) and not repository):
             raise HTTPException(status_code=400, detail="GitHub 源码插件记录不完整")
         if state.store.action_lock.locked():
             raise HTTPException(status_code=409, detail="另一个插件操作仍在进行中")
         try:
+            if not repository:
+                return await state.store.update_installed_plugin(
+                    state.config.project_root(),
+                    module_name,
+                    project_name,
+                    state.config.mimo_console_package_timeout,
+                )
             return await state.store.manage_direct_plugin(
                 state.config.project_root(),
                 module_name,
@@ -984,6 +1096,8 @@ def create_router(state: ConsoleState) -> APIRouter:
     async def system_update(
         session: Annotated[Session, Depends(require_session)],
     ) -> dict[str, Any]:
+        if not state.config.mimo_console_allow_package_management:
+            raise HTTPException(status_code=403, detail="插件更新功能已在配置中关闭")
         if state.store.action_lock.locked():
             raise HTTPException(status_code=409, detail="另一个插件操作仍在进行中")
         if state.deployment.backend_mode == "docker-agent":

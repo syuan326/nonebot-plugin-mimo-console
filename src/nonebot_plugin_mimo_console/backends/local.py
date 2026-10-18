@@ -256,7 +256,12 @@ class LocalPackageBackend:
             updated_at=now,
         )
         self._operations[operation_id] = operation
-        if importlib.util.find_spec("nb_cli") is None:
+        if (
+            request.module_name
+            and request.action != "update"
+            and not request.repository_url
+            and importlib.util.find_spec("nb_cli") is None
+        ):
             operation.status = "failed"
             operation.error = "当前环境缺少 nb-cli，请重新安装本插件后再试"
             operation.updated_at = time.time()
@@ -274,7 +279,7 @@ class LocalPackageBackend:
                 request.action,
                 request.project_name,
             )
-            if request.module_name
+            if request.module_name and request.action != "update"
             else build_dependency_command(
                 request.project_root,
                 request.action,

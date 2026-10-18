@@ -7,12 +7,16 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from nonebot import get_app, get_driver, get_plugin_config, logger, on_command, require
 from nonebot.drivers import ASGIMixin
-from nonebot.exception import IgnoredException
-from nonebot.matcher import Matcher
-from nonebot.message import run_preprocessor
+from nonebot.matcher import matchers
+from nonebot.message import event_preprocessor
 from nonebot.permission import SUPERUSER
 from nonebot.plugin import PluginMetadata
 
+require("nonebot_plugin_access_control")
+
+from nonebot.internal.adapter import Bot, Event
+
+from .access import PROTECTED, ResponseAccessRule, event_subjects, install_subject_extractor
 from .api import create_router
 from .backends import (
     DockerAgentBackend,
@@ -87,7 +91,7 @@ console_state = ConsoleState(
     release_cache=LatestReleaseCache(),
     disabled=DisabledStore(
         localstore.get_plugin_data_file("disabled_plugins.json"),
-        protected=("nonebot_plugin_mimo_console",),
+        protected=tuple(PROTECTED),
     ),
     branding=BrandingStore(
         data_file=localstore.get_plugin_data_file("branding.json"),
@@ -95,13 +99,30 @@ console_state = ConsoleState(
     ),
 )
 
+install_subject_extractor()
 
-@run_preprocessor
-async def _disabled_plugin_guard(matcher: Matcher) -> None:
-    """被控制台禁用的插件，其响应器直接忽略事件（后台任务不受影响）。"""
-    plugin_name = matcher.plugin_name or ""
-    if plugin_name and console_state.disabled.is_disabled(plugin_name):
-        raise IgnoredException(f"插件 {plugin_name} 已被 Mimo Console 禁用")
+
+async def _response_allowed(plugin_name: str, bot: Bot, event: Event) -> bool:
+    if plugin_name in PROTECTED:
+        return True
+    if console_state.disabled.is_disabled(plugin_name):
+        return False
+    result = await console_state.access.decide(plugin_name, event_subjects(bot, event))
+    return result["allow"]
+
+
+@event_preprocessor
+async def _prepare_access_rules() -> None:
+    # Also cover plugins loaded later and temporary conversation Matchers.
+    for group in list(matchers.values()):
+        for matcher in list(group):
+            plugin_name = matcher.plugin_name
+            if (
+                plugin_name
+                and plugin_name not in PROTECTED
+                and not isinstance(matcher.rule, ResponseAccessRule)
+            ):
+                matcher.rule = ResponseAccessRule(matcher.rule, plugin_name, _response_allowed)
 
 
 def _mount_console() -> bool:

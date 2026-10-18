@@ -2,10 +2,14 @@ from __future__ import annotations
 
 import asyncio
 import importlib.util
+import os
+import subprocess
 import sys
 import tempfile
 import types
 import unittest
+import venv
+import zipfile
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
@@ -45,6 +49,78 @@ load("base")
 configuration = load("configuration")
 docker_agent = load("docker_agent")
 local = load("local")
+
+
+class InstalledPluginUpdateTests(unittest.TestCase):
+    def test_registry_plugin_really_updates_in_an_isolated_environment(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="mimo-offline-update-") as temporary:
+            root = Path(temporary)
+            environment = root / "env"
+            venv.EnvBuilder(with_pip=True).create(environment)
+            python = environment / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
+            package = "nonebot_plugin_update_fixture"
+
+            def wheel(version: str) -> Path:
+                release = root / version
+                release.mkdir()
+                path = release / f"{package}-{version}-py3-none-any.whl"
+                metadata = f"{package}-{version}.dist-info"
+                files = {
+                    f"{package}/__init__.py": f'__version__ = "{version}"\n',
+                    f"{metadata}/METADATA": (
+                        f"Metadata-Version: 2.1\nName: nonebot-plugin-update-fixture\n"
+                        f"Version: {version}\n"
+                    ),
+                    f"{metadata}/WHEEL": (
+                        "Wheel-Version: 1.0\nGenerator: test\nRoot-Is-Purelib: true\n"
+                        "Tag: py3-none-any\n"
+                    ),
+                }
+                files[f"{metadata}/RECORD"] = "".join(f"{name},,\n" for name in files)
+                with zipfile.ZipFile(path, "w") as archive:
+                    for name, content in files.items():
+                        archive.writestr(name, content)
+                return path
+
+            first, latest = wheel("1.0.0"), wheel("2.0.0")
+            subprocess.run(
+                [str(python), "-m", "pip", "install", "--no-index", str(first)],
+                check=True,
+                capture_output=True,
+                timeout=60,
+            )
+            config = root / "pyproject.toml"
+            original = '[tool.nonebot]\nplugins = ["nonebot_plugin_update_fixture"]\n'
+            config.write_text(original, encoding="utf-8")
+            request = local.PackageRequest(
+                action="update",
+                module_name=package,
+                project_name="nonebot-plugin-update-fixture",
+                project_root=root,
+            )
+            with (
+                patch.object(local.sys, "executable", str(python)),
+                patch.object(local.shutil, "which", return_value=None),
+                patch.object(local.importlib.util, "find_spec", return_value=None),
+                patch.dict(os.environ, {"PIP_NO_INDEX": "1", "PIP_FIND_LINKS": str(latest.parent)}),
+            ):
+                operation = asyncio.run(local.LocalPackageBackend().manage(request, 60))
+            self.assertEqual(operation.status, "succeeded", operation.error)
+            self.assertTrue(operation.restart_required)
+            installed = subprocess.run(
+                [
+                    str(python),
+                    "-c",
+                    "from importlib.metadata import version; "
+                    "print(version('nonebot-plugin-update-fixture'))",
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            self.assertEqual(installed.stdout.strip(), "2.0.0")
+            self.assertEqual(config.read_text(encoding="utf-8"), original)
 
 
 class DockerAgentPayloadTests(unittest.TestCase):

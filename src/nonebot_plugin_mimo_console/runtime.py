@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import importlib.metadata
+import json
 import platform
 import re
 import time
@@ -179,6 +180,33 @@ def dashboard_snapshot(project_root: Path) -> dict[str, Any]:
     }
 
 
+def plugin_package_info(name: str) -> dict[str, Any]:
+    info: dict[str, Any] = {"version": "", "update_supported": False, "update_reason": ""}
+    if not name:
+        info["update_reason"] = "本地插件，请更新对应源码"
+        return info
+    if re.sub(r"[-_.]+", "-", name).lower() == "nonebot2":
+        info["update_reason"] = "内置插件随 NoneBot 框架更新"
+        return info
+    try:
+        distribution = importlib.metadata.distribution(name)
+        info["version"] = distribution.version
+        raw = distribution.read_text("direct_url.json")
+        source = json.loads(raw) if raw else {}
+    except (importlib.metadata.PackageNotFoundError, OSError, ValueError):
+        info["update_reason"] = "无法确认安装来源，请检查安装信息"
+        return info
+    if not isinstance(source, dict):
+        info["update_reason"] = "安装来源记录无效"
+    elif "dir_info" in source:
+        info["update_reason"] = "本地源码安装，请更新本地源码后重启"
+    elif source:
+        info["update_reason"] = "源码或文件安装，请通过原安装来源更新"
+    else:
+        info["update_supported"] = True
+    return info
+
+
 def plugin_snapshot() -> list[dict[str, Any]]:
     result: list[dict[str, Any]] = []
     package_map = importlib.metadata.packages_distributions()
@@ -206,6 +234,7 @@ def plugin_snapshot() -> list[dict[str, Any]]:
                 "path": str(Path(module_file).parent) if module_file else "",
                 "config_keys": sorted(set(config_keys)),
                 "distribution": distributions[0] if distributions else "",
+                **plugin_package_info(distributions[0] if distributions else ""),
             }
         )
     return result

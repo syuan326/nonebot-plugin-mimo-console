@@ -18,6 +18,7 @@
 
 - 查看 CPU、内存、磁盘、网络、进程占用和运行时间。
 - 查看当前连接的 Bot、适配器和已加载插件。
+- 按插件、适配器、机器人账号、用户和群设置响应黑白名单，并预览权限结果。
 - 搜索 NoneBot 官方插件商店，安装、更新或卸载插件。
 - 在网页中修改 dotenv 配置，敏感字段自动脱敏，保存前自动备份。
 - 搜索和筛选当前进程日志。
@@ -62,6 +63,57 @@ http://127.0.0.1:8080/mimo-console/
 ```
 
 第一次打开时输入日志中的令牌并创建管理员；完成初始化后只需使用管理员账号登录。
+
+## 更新插件
+
+在「插件」页面点击卡片上的「更新插件」，或打开详情后点击更新按钮。
+普通安装包通过当前项目的 uv / pip 更新，无需在官方商店中查找；通过面板安装并记录的 GitHub
+源码插件沿用其原仓库更新。更新过程中显示执行状态，失败会提示原因，成功后会提示是否需要重启。
+本地运行模式需要重启 NoneBot 才会加载新代码；Docker Agent 模式继续使用构建、健康检查和回滚流程。
+
+详情显示当前安装版本。位于项目内独立 Git 工作树中的插件（包括 `plugins/` 下的克隆及可编辑安装）
+会显示「更新 Git 插件」及当前分支、提交。控制台从当前分支配置的上游获取更新，只做快进合并，
+不会切换分支、强制重置或自动暂存。工作区含未提交/未跟踪文件、未配置上游、分支分叉或
+处于 detached HEAD 时会拒绝更新并提示处理方法。已是最新提交时会直接提示，不要求重启。
+更新代码后若上游新增了依赖，请先同步依赖再重启。宿主项目自身的仓库不会被当作插件仓库更新，
+Docker Agent 中的本地 Git 挂载需要在宿主机更新并重新构建容器。
+
+没有 `.git` 信息的本地源码仍需手动更新；内置插件随 NoneBot 框架更新，
+Mimo Console 自身的卡片和详情也提供「更新控制台」，与概览页「检测更新」共用专用自更新流程，
+检查官方上游版本，确认后更新并重启。本地定制源码切换到上游安装时会在确认中说明。
+更新不会改动面板设置的响应权限规则。
+
+## 响应权限
+
+侧栏的「响应权限」基于 [nonebot-plugin-access-control](https://github.com/bot-ssttkkl/nonebot-plugin-access-control)
+保存和查询规则，依赖随控制台自动安装、加载。首次加入权限插件后，按照 ORM 启动提示完成数据库迁移，
+或在 NoneBot 项目目录运行 `nb orm upgrade`。已有数据库请保留原有迁移流程；不需要开启
+`ACCESS_CONTROL_AUTO_PATCH_ENABLED`，控制台自带消息响应拦截。
+
+每条规则选择插件（或全部插件）、适配器、机器人账号（留空为该适配器的全部账号）、
+对象范围和允许/禁止策略。对象支持所有人、所有私聊、指定用户、指定群、指定群内用户。
+在线机器人账号自动提供建议，也可手动填写离线账号。用户和群 ID 按字符串保存，支持长 ID。
+
+例如只让机器人 `111` 的用户 `123` 使用 `echo`：
+
+1. 选择 `echo`、`OneBot V11`、机器人 `111`、所有人、禁止，保存。
+2. 选择同一插件、适配器和机器人，范围改为指定用户，填写 `123`、允许，保存。
+3. 在权限预览中分别输入机器人 `111` 和其他机器人，确认隔离效果。
+
+黑名单只需添加指定用户/群的禁止规则。点击「调整」后，更换对象并保存会修改原规则，
+不会保留旧对象或新增记录；新对象已有其他规则时会提示冲突，保留双方原规则。
+点击「清空表单」退出编辑后可添加新规则。新增时相同对象再次保存会覆盖原策略；删除规则恢复继承。
+规则立即生效并存储在 access-control 的 ORM 数据库中，重启不会丢失。
+
+优先级从高到低：指定机器人 > 全部机器人；每个机器人范围内，群内用户 > 用户 > 群或私聊 > 所有人。
+对于同一个主体，指定插件规则优先于全部插件规则。沿用 access-control 的主体优先级与服务继承语义。
+插件原有「整体禁用」始终优先，控制台和权限管理插件受保护，无法通过面板规则封禁自身。
+
+面板只展示自己创建的规则，与已有 `/ac` 原生规则并存。预览检查面板规则和整体禁用；
+允许通过预览后，仍须满足插件原有 Permission、Rule、原生 `/ac` 权限与限流。
+未加载插件的规则会保留，在该插件重新加载后显示。群范围依赖 session 的群 ID 提取，
+OneBot V11 使用 QQ 号和群号；QQ 官方接口使用平台提供的用户/群标识。频道暂不支持群范围规则。
+定时任务、主动推送和绕过 Matcher 的调用不在自动拦截范围内，需插件自行鉴权。
 
 ## 配置
 
@@ -159,9 +211,9 @@ node --test tests/config-fields.test.cjs
 
 <a href="https://www.star-history.com/?repos=MimoKit%2Fnonebot-plugin-mimo-console&type=date&legend=top-left">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=MimoKit/nonebot-plugin-mimo-console&type=date&theme=dark&legend=top-left&sealed_token=-bjt_4uN1J4aHMp_QpaH2dudBeu4QV__C6sShEVMLwHmx5ar_wMeEy4wgQZ0kqGBu9ZzSlNLKeDyTxrfM_Ad06Rj9G1YdjxJuCrodSIcfQI915neDBCvSkWA9nKssmLBoG2YlcBlE5zd9Ep-DMF7es9rx3cQBaGkRDFfYb6jk_tmCxUWfwVANLS8BUEM">
-    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=MimoKit/nonebot-plugin-mimo-console&type=date&legend=top-left&sealed_token=-bjt_4uN1J4aHMp_QpaH2dudBeu4QV__C6sShEVMLwHmx5ar_wMeEy4wgQZ0kqGBu9ZzSlNLKeDyTxrfM_Ad06Rj9G1YdjxJuCrodSIcfQI915neDBCvSkWA9nKssmLBoG2YlcBlE5zd9Ep-DMF7es9rx3cQBaGkRDFfYb6jk_tmCxUWfwVANLS8BUEM">
-    <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=MimoKit/nonebot-plugin-mimo-console&type=date&legend=top-left&sealed_token=-bjt_4uN1J4aHMp_QpaH2dudBeu4QV__C6sShEVMLwHmx5ar_wMeEy4wgQZ0kqGBu9ZzSlNLKeDyTxrfM_Ad06Rj9G1YdjxJuCrodSIcfQI915neDBCvSkWA9nKssmLBoG2YlcBlE5zd9Ep-DMF7es9rx3cQBaGkRDFfYb6jk_tmCxUWfwVANLS8BUEM">
+    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=MimoKit/nonebot-plugin-mimo-console&type=date&theme=dark&legend=top-left">
+    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=MimoKit/nonebot-plugin-mimo-console&type=date&legend=top-left">
+    <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=MimoKit/nonebot-plugin-mimo-console&type=date&legend=top-left">
   </picture>
 </a>
 

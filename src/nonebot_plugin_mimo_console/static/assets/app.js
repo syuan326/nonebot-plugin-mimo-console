@@ -10,6 +10,10 @@ const state = {
   page: "dashboard",
   dashboard: null,
   plugins: [],
+  accessRules: [],
+  accessEditing: null,
+  accessBots: [],
+  selfUpdateBusy: false,
   pluginTab: "installed",
   storePlugins: [],
   storePage: 1,
@@ -125,7 +129,10 @@ async function api(path, options = {}) {
     signOut(false);
     throw new Error(data.detail || "登录已失效");
   }
-  if (!response.ok) throw new Error(data.detail || `请求失败（${response.status}）`);
+  if (!response.ok) {
+    const detail = Array.isArray(data.detail) ? data.detail.map((item) => item.msg).join("；") : data.detail;
+    throw new Error(detail || `请求失败（${response.status}）`);
+  }
   return data;
 }
 
@@ -167,6 +174,17 @@ async function bootstrap() {
 }
 
 function bindEvents() {
+  $("#access-form").addEventListener("submit", saveAccessRule);
+  $("#access-target").addEventListener("change", updateAccessTarget);
+  $("#access-reset").addEventListener("click", resetAccessForm);
+  $("#access-search").addEventListener("input", renderAccessRules);
+  $("#access-preview-form").addEventListener("submit", previewAccess);
+  for (const prefix of ["access", "access-preview"]) {
+    $("#" + prefix + "-bot").addEventListener("change", (event) => {
+      const matches = state.accessBots.filter((bot) => bot.bot_id === event.target.value.trim());
+      if (matches.length === 1) $("#" + prefix + "-adapter").value = matches[0].adapter;
+    });
+  }
   window.addEventListener("beforeunload", (event) => {
     if (state.configChanges.size || brandingHasChanges()) { event.preventDefault(); event.returnValue = ""; }
   });
@@ -264,7 +282,7 @@ function bindEvents() {
   $("#github-repository-url").addEventListener("input", updateGithubInstallPreview);
   $("#github-project-name").addEventListener("input", updateGithubInstallPreview);
   $("#github-module-name").addEventListener("input", updateGithubInstallPreview);
-  $("#check-update-btn").addEventListener("click", checkUpdate);
+  $("#check-update-btn").addEventListener("click", () => checkUpdate($("#check-update-btn")));
   $("#proxy-save").addEventListener("click", saveProxySettings);
   $("#proxy-test-btn").addEventListener("click", testProxySettings);
   $$(".view-toggle button").forEach((button) => button.addEventListener("click", () => {
@@ -362,6 +380,7 @@ function clearTimers() {
 const pages = {
   dashboard: "概览",
   plugins: "插件",
+  access: "响应权限",
   dependencies: "依赖管理",
   config: "核心配置",
   logs: "日志",
@@ -375,6 +394,7 @@ async function navigate(page) {
   $("#page-crumb").textContent = pages[page];
   toggleSidebar(false);
   if (page === "plugins") await refreshPluginsPage();
+  if (page === "access") await loadAccess();
   if (page === "dependencies") await loadDependencies();
   if (page === "config") await loadConfig();
   if (page === "logs") { await loadLogs(); scrollLogs(); }
@@ -405,6 +425,7 @@ async function refreshCurrent() {
   try {
     if (state.page === "dashboard") await loadDashboard();
     if (state.page === "plugins") await refreshPluginsPage();
+    if (state.page === "access") await loadAccess();
     if (state.page === "dependencies") await loadDependencies();
     if (state.page === "config") await loadConfig();
     if (state.page === "logs") await loadLogs();
@@ -527,8 +548,8 @@ function loadedPluginHtml(item, index) {
     <div class="plugin-card-head">
       ${pluginAvatarHtml(item)}
       <div class="plugin-title">
-        <h3>${escapeHtml(item.title)}</h3>
-        <div class="module">${escapeHtml(item.module)}</div>
+        <h3 title="${escapeHtml(item.title)}">${escapeHtml(item.title)}</h3>
+        <div class="module" title="${escapeHtml(item.module)}">${escapeHtml(item.module)}</div>
       </div>
       ${statusButton}
     </div>
@@ -536,6 +557,12 @@ function loadedPluginHtml(item, index) {
     <div class="plugin-meta">
       <span>${escapeHtml(item.type)}</span>
       <span>${isUnloaded ? "等待修复加载错误" : `${escapeHtml(item.matchers ?? 0)} 个响应器`}</span>
+      ${item.version ? `<span class="plugin-version">v${escapeHtml(String(item.version).replace(/^v/, ""))}</span>` : ""}
+    </div>
+    <div class="plugin-card-actions">
+      ${state.packageManagement && isSelf ? '<button class="btn btn-ghost btn-sm" type="button" data-console-self-update>更新控制台</button>' : ""}
+      ${state.packageManagement && !isSelf && (item.local_git_path || item.source_repository || item.update_supported)
+        ? `<button class="btn btn-ghost btn-sm" type="button" data-loaded-plugin-update="${escapeHtml(item.name)}" ${item.local_git_path && !item.update_supported ? `disabled title="${escapeHtml(item.update_reason)}"` : ""}>${item.local_git_path ? "更新 Git 插件" : "更新插件"}</button>` : ""}
       <span class="detail-hint">详情 →</span>
     </div>
   </article>`;
@@ -655,6 +682,7 @@ function storePluginHtml(item, index) {
 }
 
 function bindPluginCardEvents() {
+  bindConsoleUpdateButtons();
   $$(".plugin-card[data-detail-source]").forEach((card) => {
     const open = () => {
       const source = card.dataset.detailSource;
@@ -669,6 +697,7 @@ function bindPluginCardEvents() {
       open();
     });
     card.addEventListener("keydown", (event) => {
+      if (event.target.closest("button, a")) return;
       if (event.key === "Enter" || event.key === " ") {
         event.preventDefault();
         open();
@@ -680,6 +709,33 @@ function bindPluginCardEvents() {
       event.stopPropagation();
       const item = state.plugins.find((plugin) => plugin.name === button.dataset.pluginToggle);
       if (item) await togglePluginDisabled(item, button);
+    });
+  });
+  $$("[data-loaded-plugin-update]").forEach((button) => {
+    button.addEventListener("click", async (event) => {
+      event.stopPropagation();
+      const item = state.plugins.find((plugin) => plugin.name === button.dataset.loadedPluginUpdate);
+      if (!item) return;
+      if (item.local_git_path || item.source_repository) {
+        button.dataset.sourcePluginAction = "update";
+        await manageLoadedSourcePlugin(item, button);
+      } else {
+        button.dataset.loadedPluginAction = "update";
+        button.dataset.pluginDistribution = item.distribution;
+        await manageLoadedDependencyPlugin(item, button);
+      }
+    });
+  });
+}
+
+function bindConsoleUpdateButtons(context = document) {
+  $$("[data-console-self-update]", context).forEach((button) => {
+    button.disabled = state.selfUpdateBusy;
+    if (button.dataset.consoleUpdateBound) return;
+    button.dataset.consoleUpdateBound = "true";
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      checkUpdate(button);
     });
   });
 }
@@ -710,14 +766,16 @@ async function openLoadedDetail(item) {
         <div class="detail-cell"><span>类型</span><strong>${escapeHtml(item.type || "plugin")}</strong></div>
         <div class="detail-cell"><span>响应器</span><strong>${escapeHtml(item.matchers ?? 0)}</strong></div>
         <div class="detail-cell"><span>插件名</span><strong>${escapeHtml(item.name)}</strong></div>
+        ${item.version ? `<div class="detail-cell"><span>已安装版本</span><strong>${escapeHtml(item.version)}</strong></div>` : ""}
+        ${item.local_git_path ? `<div class="detail-cell"><span>Git 分支</span><strong>${escapeHtml(item.git_branch || "未选择分支")}</strong></div><div class="detail-cell"><span>Git 提交</span><strong class="mono">${escapeHtml((item.git_commit || "").slice(0, 12))}</strong></div>` : ""}
       </div>
     </div>
-    ${item.path ? `<div class="detail-section"><h3>路径</h3><p class="detail-desc mono">${escapeHtml(item.path)}</p></div>` : ""}
+    ${item.path ? `<details class="detail-section detail-disclosure"><summary>本地路径</summary><p class="detail-desc mono">${escapeHtml(item.path)}</p></details>` : ""}
     ${homepage ? `<div class="detail-section"><h3>链接</h3><div class="detail-links"><a href="${homepage}" target="_blank" rel="noreferrer"><span>主页 / 文档</span><span>↗</span></a></div></div>` : ""}
-    <div class="detail-section">
-      <h3>README</h3>
+    <details class="detail-section detail-disclosure">
+      <summary><h3>README</h3><span>查看插件文档</span></summary>
       <div id="detail-readme"><div class="empty-text">正在加载 README…</div></div>
-    </div>
+    </details>
     <div class="detail-section plugin-config-section" id="detail-plugin-config">
       <h3>插件配置</h3>
       <div class="empty-state compact">${item.loaded === false ? "插件未加载，暂无运行时配置可编辑" : "正在读取配置…"}</div>
@@ -725,14 +783,24 @@ async function openLoadedDetail(item) {
   `;
   const isSelf = item.module === "nonebot_plugin_mimo_console";
   const loadedActions = [];
+  if (state.packageManagement && isSelf) {
+    loadedActions.push('<button class="btn btn-primary" type="button" data-console-self-update>更新控制台</button>');
+    loadedActions.push('<span class="empty-text">检查官方上游版本，确认更新后自动重启 NoneBot。</span>');
+  }
   if (state.packageManagement && !isSelf) {
-    if (item.source_repository) {
+    if (item.local_git_path) {
+      loadedActions.push(`<button class="btn btn-primary" type="button" data-source-plugin-action="update" ${item.update_supported ? "" : "disabled"}>更新 Git 插件</button>`);
+      if (!item.update_supported) loadedActions.push(`<span class="empty-text">${escapeHtml(item.update_reason)}</span>`);
+    } else if (item.source_repository) {
       loadedActions.push(
         `<button class="btn btn-primary" type="button" data-source-plugin-action="update">更新源码插件</button>
          <button class="btn btn-danger" type="button" data-source-plugin-action="uninstall">卸载源码插件</button>`,
       );
     } else if (item.distribution) {
       loadedActions.push(
+        item.update_supported
+          ? `<button class="btn btn-primary" type="button" data-loaded-plugin-action="update" data-plugin-distribution="${escapeHtml(item.distribution)}">更新插件</button>`
+          : `<span class="empty-text">${escapeHtml(item.update_reason || "该插件不支持在线更新")}</span>`,
         `<button class="btn btn-danger" type="button" data-loaded-plugin-action="uninstall" data-plugin-distribution="${escapeHtml(item.distribution)}">卸载</button>`,
       );
     }
@@ -741,6 +809,7 @@ async function openLoadedDetail(item) {
     loadedActions.push(`<a class="btn btn-ghost" href="${homepage}" target="_blank" rel="noreferrer">打开主页</a>`);
   }
   $("#detail-actions").innerHTML = loadedActions.join("");
+  bindConsoleUpdateButtons($("#detail-actions"));
   $$("[data-source-plugin-action]", $("#detail-actions")).forEach((button) => {
     button.addEventListener("click", () => manageLoadedSourcePlugin(item, button));
   });
@@ -763,7 +832,10 @@ async function openLoadedDetail(item) {
 async function manageLoadedSourcePlugin(item, button) {
   const action = button.dataset.sourcePluginAction;
   const label = action === "update" ? "更新" : "卸载";
-  if (!window.confirm(`确定${label}「${item.title || item.name}」吗？`)) return;
+  const explanation = item.local_git_path
+    ? `将从 ${item.git_upstream || "当前上游分支"} 快进更新；本地修改或分支分叉时会停止。完成后需要重启 NoneBot 生效。`
+    : "完成后需要重启 NoneBot 生效。";
+  if (!window.confirm(`确定${label}「${item.title || item.name}」吗？${explanation}`)) return;
   const original = button.textContent;
   button.disabled = true;
   button.textContent = `${label}中…`;
@@ -778,7 +850,7 @@ async function manageLoadedSourcePlugin(item, button) {
     if (result.status === "failed" || result.status === "rolled_back") {
       throw new Error(result.error || `${label}失败`);
     }
-    toast(`${item.title || item.name} 已${label}`, "success");
+    toast(result.detail || `${item.title || item.name} 已${label}${result.restart_required ? "，重启 NoneBot 后生效" : ""}`, result.restart_required ? "warning" : "success");
     closeDetail();
     await loadPlugins();
   } catch (error) {
@@ -798,7 +870,10 @@ async function manageLoadedDependencyPlugin(item, button) {
   button.disabled = true;
   button.textContent = `${label}中…`;
   try {
-    let result = await api(`/dependencies/${encodeURIComponent(distribution)}/action`, {
+    const endpoint = action === "update"
+      ? `/plugins/${encodeURIComponent(item.module)}/action`
+      : `/dependencies/${encodeURIComponent(distribution)}/action`;
+    let result = await api(endpoint, {
       method: "POST",
       body: JSON.stringify({ action }),
     });
@@ -2514,20 +2589,29 @@ async function testProxySettings() {
   }
 }
 
-async function checkUpdate() {
-  const button = $("#check-update-btn");
+async function checkUpdate(button = $("#check-update-btn")) {
+  if (state.selfUpdateBusy) return;
+  state.selfUpdateBusy = true;
   const original = button.textContent;
-  button.disabled = true;
+  const buttons = [$("#check-update-btn"), ...$$("[data-console-self-update]")].filter(Boolean);
+  buttons.forEach((item) => { item.disabled = true; });
   button.textContent = "检测中…";
   try {
     const data = await api("/system/version?force=true");
     state.version = data;
     renderVersion(data);
     if (data.has_update && data.latest) {
+      if (!state.packageManagement) {
+        toast(`检测到 v${data.latest}，当前配置已关闭包管理功能`, "warning");
+        return;
+      }
+      const self = state.plugins.find((item) => item.module === "nonebot_plugin_mimo_console");
+      const localNotice = self && (self.local_git_path || (!self.update_supported && !self.source_repository))
+        ? "\n当前使用本地源码，更新会切换到官方上游安装；请先保存本地定制。" : "";
       const ok = window.confirm(
-        `检测到新版本 v${data.latest}（当前 v${data.current || "?"}），是否立即更新？\n将通过当前项目包管理器拉取 GitHub 最新版，完成后自动重启 NoneBot。`,
+        `检测到新版本 v${data.latest}（当前 v${data.current || "?"}），是否立即更新？\n将通过当前项目包管理器拉取 GitHub 最新版，完成后自动重启 NoneBot。${localNotice}`,
       );
-      if (ok) await runUpdate();
+      if (ok) await runUpdate(button);
     } else if (data.latest) {
       toast(`已是最新版本 v${data.current}`);
     } else {
@@ -2536,25 +2620,40 @@ async function checkUpdate() {
   } catch (error) {
     toast(error.message, "error");
   } finally {
-    button.disabled = false;
+    state.selfUpdateBusy = false;
+    buttons.forEach((item) => { item.disabled = false; });
+    $$("[data-console-self-update]").forEach((item) => { item.disabled = false; });
     button.textContent = original;
   }
 }
 
-async function runUpdate() {
+async function runUpdate(button = $("#check-update-btn")) {
   try {
     let result = await api("/system/update", { method: "POST" });
     if (result.status && !["succeeded", "failed", "rolled_back"].includes(result.status)) {
-      result = await waitPackageOperation(result, $("#check-update-btn"), "更新");
-      if (result.status !== "succeeded") {
-        throw new Error(result.error || "更新失败，原容器已恢复");
-      }
+      result = await waitPackageOperation(result, button, "更新");
+    }
+    if (result.ok === false || ["failed", "rolled_back"].includes(result.status)) {
+      throw new Error(result.error || "更新失败");
+    }
+    if (result.operation_id && !result.restart_required) {
       toast("Mimo Console 已更新并完成容器切换");
       location.reload();
       return;
     }
-    toast("已更新，正在重启…", "warning");
-    pollRestart();
+    if (result.restart_required) {
+      const restart = await api("/system/restart", { method: "POST" });
+      if (restart.operation_id) {
+        const completed = await waitPackageOperation(restart, button, "重启");
+        if (completed.status !== "succeeded") throw new Error(completed.error || "重启失败");
+        location.reload();
+        return;
+      }
+      toast("已更新，正在重启…", "warning");
+      await pollRestart();
+    } else {
+      toast("Mimo Console 已更新");
+    }
   } catch (error) {
     toast(error.message, "error");
   }
@@ -2714,6 +2813,135 @@ async function loadPluginReadme(moduleName, source = "store") {
   } catch (_) {
     readmeContainer.innerHTML = '<div class="empty-text">README 加载失败</div>';
   }
+}
+
+async function loadAccess() {
+  try {
+    const data = await api("/access");
+    state.accessRules = data.rules;
+    state.accessBots = data.bots;
+    const options = data.plugins.map((item) => `<option value="${escapeHtml(item.name)}">${escapeHtml(item.title)} · ${escapeHtml(item.name)}</option>`).join("");
+    const editor = $("#access-plugin");
+    const preview = $("#access-preview-plugin");
+    const oldPlugin = editor.value;
+    const oldPreview = preview.value;
+    editor.innerHTML = '<option value="nonebot">全部插件</option>' + options;
+    preview.innerHTML = options;
+    if ([...editor.options].some((option) => option.value === oldPlugin)) editor.value = oldPlugin;
+    if ([...preview.options].some((option) => option.value === oldPreview)) preview.value = oldPreview;
+    $("#access-bots").innerHTML = data.bots.map((bot) => `<option value="${escapeHtml(bot.bot_id)}">${escapeHtml(bot.adapter)}</option>`).join("");
+    const adapters = [...new Set(["OneBot V11", "OneBot V12", "QQ", ...data.bots.map((bot) => bot.adapter), ...data.rules.map((rule) => rule.adapter)])];
+    $("#access-adapters").innerHTML = adapters.map((adapter) => `<option value="${escapeHtml(adapter)}"></option>`).join("");
+    renderAccessRules();
+  } catch (error) {
+    $("#access-status").textContent = `读取失败：${error.message}`;
+    toast(error.message, "error");
+  }
+}
+
+function updateAccessTarget() {
+  const target = $("#access-target").value;
+  const user = ["user", "group_user"].includes(target);
+  const group = ["group", "group_user"].includes(target);
+  $("#access-user-field").hidden = !user;
+  $("#access-group-field").hidden = !group;
+  $("#access-user").required = user;
+  $("#access-group").required = group;
+}
+
+function resetAccessForm() {
+  state.accessEditing = null;
+  $("#access-form").reset();
+  updateAccessTarget();
+  $("#access-editor-title").textContent = "添加规则";
+  $("#access-save").textContent = "保存规则";
+}
+
+function accessRuleFromForm() {
+  const target = $("#access-target").value;
+  return {
+    plugin: $("#access-plugin").value,
+    adapter: $("#access-adapter").value.trim(),
+    bot_id: $("#access-bot").value.trim(),
+    target,
+    user_id: ["user", "group_user"].includes(target) ? $("#access-user").value.trim() : "",
+    group_id: ["group", "group_user"].includes(target) ? $("#access-group").value.trim() : "",
+    allow: $("#access-allow").value === "true",
+  };
+}
+
+async function saveAccessRule(event) {
+  event.preventDefault();
+  const button = $("#access-save");
+  button.disabled = true;
+  try {
+    const rule = accessRuleFromForm();
+    const editing = state.accessEditing !== null;
+    await api("/access/rule", {
+      method: editing ? "PATCH" : "PUT",
+      body: JSON.stringify(editing ? { original: state.accessEditing, rule } : rule),
+    });
+    if (editing) state.accessEditing = { ...rule };
+    $("#access-status").textContent = "已保存，立即生效";
+    $("#access-preview-result").textContent = "";
+    await loadAccess();
+    toast(editing ? "原规则已修改" : "响应权限已保存");
+  } catch (error) {
+    $("#access-status").textContent = `保存失败：${error.message}`;
+    toast(error.message, "error");
+  } finally { button.disabled = false; }
+}
+
+const accessTargetNames = { all: "所有人", private: "所有私聊", user: "用户", group: "群", group_user: "群内用户" };
+
+function renderAccessRules() {
+  const query = $("#access-search").value.trim().toLowerCase();
+  const rows = state.accessRules.map((rule, index) => ({ rule, index })).filter(({ rule }) => JSON.stringify(rule).toLowerCase().includes(query));
+  $("#access-count").textContent = state.accessRules.length;
+  $("#access-rules").innerHTML = rows.length ? rows.map(({ rule, index }) => `<div class="access-rule">
+    <div><strong>${escapeHtml(rule.plugin === "nonebot" ? "全部插件" : rule.plugin)}</strong><p>${escapeHtml(rule.adapter)} · ${escapeHtml(rule.bot_id || "全部机器人")} · ${escapeHtml(accessTargetNames[rule.target])}${rule.group_id ? ` · 群 ${escapeHtml(rule.group_id)}` : ""}${rule.user_id ? ` · 用户 ${escapeHtml(rule.user_id)}` : ""}</p></div>
+    <span class="badge ${rule.allow ? "enabled" : "disabled"}">${rule.allow ? "允许" : "禁止"}</span>
+    <button type="button" class="btn btn-ghost btn-sm" data-access-edit="${index}">调整</button>
+    <button type="button" class="btn btn-ghost btn-sm" data-access-delete="${index}">删除</button>
+  </div>`).join("") : '<div class="empty-state">没有匹配的规则；未设置规则时默认允许。</div>';
+  $$("[data-access-edit]").forEach((button) => button.addEventListener("click", () => {
+    const rule = state.accessRules[Number(button.dataset.accessEdit)];
+    state.accessEditing = { ...rule };
+    for (const [id, value] of Object.entries({ plugin: rule.plugin, adapter: rule.adapter, bot: rule.bot_id, target: rule.target, user: rule.user_id, group: rule.group_id, allow: String(rule.allow) })) $("#access-" + id).value = value;
+    updateAccessTarget();
+    $("#access-editor-title").textContent = "调整规则（保存将修改原规则）";
+    $("#access-save").textContent = "保存修改";
+    $("#access-form").scrollIntoView({ behavior: "smooth", block: "center" });
+  }));
+  $$("[data-access-delete]").forEach((button) => button.addEventListener("click", async () => {
+    button.disabled = true;
+    try {
+      const rule = state.accessRules[Number(button.dataset.accessDelete)];
+      await api("/access/rule/delete", { method: "POST", body: JSON.stringify(rule) });
+      if (JSON.stringify(state.accessEditing) === JSON.stringify(rule)) resetAccessForm();
+      $("#access-preview-result").textContent = "";
+      await loadAccess();
+      toast("规则已删除，恢复继承其他规则");
+    } catch (error) { toast(error.message, "error"); }
+    finally { button.disabled = false; }
+  }));
+}
+
+async function previewAccess(event) {
+  event.preventDefault();
+  const button = $("button", event.target);
+  button.disabled = true;
+  try {
+    const result = await api("/access/preview", { method: "POST", body: JSON.stringify({
+      plugin: $("#access-preview-plugin").value,
+      adapter: $("#access-preview-adapter").value.trim(),
+      bot_id: $("#access-preview-bot").value.trim(),
+      user_id: $("#access-preview-user").value.trim(),
+      group_id: $("#access-preview-group").value.trim(),
+    }) });
+    $("#access-preview-result").textContent = `${result.allow ? "允许通过面板检查" : "禁止响应"}：${result.reason}${result.matched ? `（${result.matched.plugin === "nonebot" ? "全部插件" : result.matched.plugin}）` : ""}`;
+  } catch (error) { $("#access-preview-result").textContent = `检查失败：${error.message}`; }
+  finally { button.disabled = false; }
 }
 
 bootstrap();
